@@ -768,8 +768,13 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 			),
 		)
 	}
+	providerName := model.Provider
+	if model.Custom {
+		providerName = models.ProviderOpenAI
+		opts = append(opts, provider.WithOpenAIOptions(provider.WithOpenAIBaseURL(providerCfg.BaseURL)))
+	}
 	agentProvider, err := provider.NewProvider(
-		model.Provider,
+		providerName,
 		opts...,
 	)
 	if err != nil {

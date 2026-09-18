@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/llm/models"
@@ -181,6 +182,23 @@ func generateSchema() map[string]any {
 					"type":        "string",
 					"description": "API key for the provider",
 				},
+				"baseURL": map[string]any{"type": "string", "format": "uri", "description": "OpenAI-compatible endpoint"},
+				"models": map[string]any{
+					"type": "object",
+					"additionalProperties": map[string]any{
+						"type":     "object",
+						"required": []string{"name", "contextWindow", "maxTokens"},
+						"properties": map[string]any{
+							"name":          map[string]any{"type": "string"},
+							"contextWindow": map[string]any{"type": "integer", "minimum": 1},
+							"maxTokens":     map[string]any{"type": "integer", "minimum": 1},
+							"reasoning":     map[string]any{"type": "boolean"},
+							"attachments":   map[string]any{"type": "boolean"},
+							"interleaved":   map[string]any{"enum": []string{"reasoning_content"}},
+							"options":       map[string]any{"type": "object"},
+						},
+					},
+				},
 				"disabled": map[string]any{
 					"type":        "boolean",
 					"description": "Whether the provider is disabled",
@@ -242,7 +260,11 @@ func generateSchema() map[string]any {
 	for modelID := range models.SupportedModels {
 		modelEnum = append(modelEnum, string(modelID))
 	}
-	agentSchema["additionalProperties"].(map[string]any)["properties"].(map[string]any)["model"].(map[string]any)["enum"] = modelEnum
+	slices.Sort(modelEnum)
+	agentSchema["additionalProperties"].(map[string]any)["properties"].(map[string]any)["model"].(map[string]any)["anyOf"] = []map[string]any{
+		{"enum": modelEnum},
+		{"pattern": "^[^/]+/.+$"},
+	}
 
 	// Add specific agent properties
 	agentProperties := map[string]any{}
