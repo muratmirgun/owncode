@@ -52,8 +52,10 @@ type Agent struct {
 
 // Provider defines configuration for an LLM provider.
 type Provider struct {
-	APIKey   string `json:"apiKey"`
-	Disabled bool   `json:"disabled"`
+	APIKey   string                 `json:"apiKey"`
+	Disabled bool                   `json:"disabled"`
+	BaseURL  string                 `json:"baseURL,omitempty"`
+	Models   map[string]CustomModel `json:"models,omitempty"`
 }
 
 // Data defines storage configuration.
@@ -146,13 +148,19 @@ func Load(workingDir string, debug bool) (*Config, error) {
 	}
 
 	// Load and merge local config
-	mergeLocalConfig(workingDir)
+	if err := mergeLocalConfig(workingDir); err != nil {
+		return cfg, err
+	}
 
 	setProviderDefaults()
 
 	// Apply configuration to the struct
 	if err := viper.Unmarshal(cfg); err != nil {
 		return cfg, fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	if err := registerCustomModels(cfg); err != nil {
+		return cfg, err
 	}
 
 	applyDefaultValues()
@@ -207,10 +215,12 @@ func Load(workingDir string, debug bool) (*Config, error) {
 		cfg.Agents = make(map[AgentName]Agent)
 	}
 
-	// Override the max tokens for title agent
-	cfg.Agents[AgentTitle] = Agent{
-		Model:     cfg.Agents[AgentTitle].Model,
-		MaxTokens: 80,
+	// Custom reasoning models need their configured budget for title generation.
+	if !models.SupportedModels[cfg.Agents[AgentTitle].Model].Custom {
+		cfg.Agents[AgentTitle] = Agent{
+			Model:     cfg.Agents[AgentTitle].Model,
+			MaxTokens: 80,
+		}
 	}
 	return cfg, nil
 }
@@ -448,16 +458,23 @@ func readConfig(err error) error {
 }
 
 // mergeLocalConfig loads and merges configuration from the local directory.
-func mergeLocalConfig(workingDir string) {
-	local := viper.New()
-	local.SetConfigName(fmt.Sprintf(".%s", appName))
-	local.SetConfigType("json")
-	local.AddConfigPath(workingDir)
-
-	// Merge local config if it exists
-	if err := local.ReadInConfig(); err == nil {
-		viper.MergeConfigMap(local.AllSettings())
+func mergeLocalConfig(workingDir string) error {
+	for _, name := range []string{"." + appName, "." + appName + ".local"} {
+		local := viper.New()
+		local.SetConfigName(name)
+		local.SetConfigType("json")
+		local.AddConfigPath(workingDir)
+		if err := local.ReadInConfig(); err != nil {
+			if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+				continue
+			}
+			return fmt.Errorf("read %s.json: %w", name, err)
+		}
+		if err := viper.MergeConfigMap(local.AllSettings()); err != nil {
+			return fmt.Errorf("merge %s.json: %w", name, err)
+		}
 	}
+	return nil
 }
 
 // applyDefaultValues sets default values for configuration fields that need processing.

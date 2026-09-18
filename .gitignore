@@ -45,3 +45,6 @@ Thumbs.db
 
 owncode
 owncode.md
+
+# Private provider credentials and machine settings
+.owncode.local.json

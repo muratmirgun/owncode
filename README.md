@@ -48,6 +48,29 @@ The inherited model list can contain retired models. Select an available model b
 OwnCode has no published release yet. Use the source build for now.
 The `install` script targets this repository's future release assets.
 
+### Custom providers and private settings
+
+OwnCode loads `.owncode.local.json` after `.owncode.json`.
+Local settings override project settings. Git ignores the local file.
+Use it for API keys and machine-specific MCP commands.
+Invalid local JSON stops startup with a configuration error.
+
+See [the Theykk example](docs/theykk.example.json) for an OpenAI-compatible provider and MCP setup.
+Copy that example to `.owncode.local.json`, then replace the placeholder key locally.
+Do not commit real keys.
+
+Custom models use `provider/model` IDs, such as `theykk/qwen38`.
+Set `baseURL` on the provider and define its `models` map.
+Each model needs `name`, `contextWindow`, and `maxTokens`.
+Set the model for `coder`, `task`, `summarizer`, and `title` under `agents`.
+
+Model `options` are sent as request fields, including sampling settings and `chat_template_kwargs`.
+`interleaved: "reasoning_content"` enables streamed reasoning and preserves it in later assistant messages.
+`attachments: true` enables image attachments.
+Custom endpoints receive `max_tokens`; OwnCode does not add OpenAI-specific `reasoning_effort` to those requests.
+MCP uses `mcpServers`, with `type: "stdio"`, a command string, and an optional argument list.
+This Go application does not load npm provider plugins.
+
 ### Storage and migration
 
 OwnCode uses `.owncode.json`, the `.owncode/` data directory, and `owncode.db`.

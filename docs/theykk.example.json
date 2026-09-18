@@ -1,0 +1,52 @@
+{
+  "providers": {
+    "theykk": {
+      "baseURL": "https://ml.theykk.net/v1",
+      "apiKey": "YOUR_THEYKK_API_KEY",
+      "models": {
+        "qwen38": {
+          "name": "Qwen3.8 27B Uncensored FP8 (GH200)",
+          "reasoning": true,
+          "attachments": true,
+          "interleaved": "reasoning_content",
+          "contextWindow": 262144,
+          "maxTokens": 32768,
+          "options": {
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "top_k": 20,
+            "chat_template_kwargs": {
+              "enable_thinking": true,
+              "preserve_thinking": true
+            }
+          }
+        }
+      }
+    }
+  },
+  "agents": {
+    "coder": {
+      "model": "theykk/qwen38",
+      "maxTokens": 32768
+    },
+    "task": {
+      "model": "theykk/qwen38",
+      "maxTokens": 32768
+    },
+    "summarizer": {
+      "model": "theykk/qwen38",
+      "maxTokens": 32768
+    },
+    "title": {
+      "model": "theykk/qwen38",
+      "maxTokens": 2048
+    }
+  },
+  "mcpServers": {
+    "codebase-memory-mcp": {
+      "type": "stdio",
+      "command": "/Users/murat/.local/bin/codebase-memory-mcp",
+      "args": []
+    }
+  }
+}

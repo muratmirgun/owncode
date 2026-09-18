@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"time"
 
 	"github.com/muratmirgun/owncode/internal/config"
@@ -95,6 +96,10 @@ func (o *openaiClient) convertMessages(messages []message.Message) (openaiMessag
 				}
 			}
 
+			if field := o.providerOptions.model.ReasoningField; field != "" {
+				assistantMsg.WithExtraFields(map[string]any{field: msg.ReasoningContent().String()})
+			}
+
 			if len(msg.ToolCalls()) > 0 {
 				assistantMsg.ToolCalls = make([]openai.ChatCompletionMessageToolCallParam, len(msg.ToolCalls()))
 				for i, call := range msg.ToolCalls() {
@@ -166,7 +171,7 @@ func (o *openaiClient) preparedParams(messages []openai.ChatCompletionMessagePar
 		Tools:    tools,
 	}
 
-	if o.providerOptions.model.CanReason == true {
+	if o.providerOptions.model.CanReason && !o.providerOptions.model.Custom {
 		params.MaxCompletionTokens = openai.Int(o.providerOptions.maxTokens)
 		switch o.options.reasoningEffort {
 		case "low":
@@ -182,13 +187,14 @@ func (o *openaiClient) preparedParams(messages []openai.ChatCompletionMessagePar
 		params.MaxTokens = openai.Int(o.providerOptions.maxTokens)
 	}
 
+	params.WithExtraFields(maps.Clone(o.providerOptions.model.Options))
 	return params
 }
 
 func (o *openaiClient) send(ctx context.Context, messages []message.Message, tools []tools.BaseTool) (response *ProviderResponse, err error) {
 	params := o.preparedParams(o.convertMessages(messages), o.convertTools(tools))
 	cfg := config.Get()
-	if cfg.Debug {
+	if cfg != nil && cfg.Debug {
 		jsonData, _ := json.Marshal(params)
 		logging.Debug("Prepared messages", "messages", string(jsonData))
 	}
@@ -217,6 +223,9 @@ func (o *openaiClient) send(ctx context.Context, messages []message.Message, too
 			return nil, retryErr
 		}
 
+		if len(openaiResponse.Choices) == 0 {
+			return nil, fmt.Errorf("provider returned no completion choices")
+		}
 		content := ""
 		if openaiResponse.Choices[0].Message.Content != "" {
 			content = openaiResponse.Choices[0].Message.Content
@@ -245,7 +254,7 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 	}
 
 	cfg := config.Get()
-	if cfg.Debug {
+	if cfg != nil && cfg.Debug {
 		jsonData, _ := json.Marshal(params)
 		logging.Debug("Prepared messages", "messages", string(jsonData))
 	}
@@ -270,6 +279,30 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 				acc.AddChunk(chunk)
 
 				for _, choice := range chunk.Choices {
+					if field := o.providerOptions.model.ReasoningField; field != "" {
+						var thinking string
+						raw := choice.Delta.JSON.ExtraFields[field].Raw()
+						if raw != "" && raw != "null" {
+							if err := json.Unmarshal([]byte(raw), &thinking); err != nil {
+								_ = openaiStream.Close() // The stream or context error takes precedence.
+								select {
+								case eventChan <- ProviderEvent{Type: EventError, Error: fmt.Errorf("decode reasoning content: %w", err)}:
+								case <-ctx.Done():
+								}
+								close(eventChan)
+								return
+							}
+							if thinking != "" {
+								select {
+								case eventChan <- ProviderEvent{Type: EventThinkingDelta, Thinking: thinking}:
+								case <-ctx.Done():
+									_ = openaiStream.Close() // The stream or context error takes precedence.
+									close(eventChan)
+									return
+								}
+							}
+						}
+					}
 					if choice.Delta.Content != "" {
 						eventChan <- ProviderEvent{
 							Type:    EventContentDelta,
@@ -281,6 +314,12 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 			}
 
 			err := openaiStream.Err()
+			if closeErr := openaiStream.Close(); err == nil {
+				err = closeErr
+			}
+			if (err == nil || errors.Is(err, io.EOF)) && len(acc.ChatCompletion.Choices) == 0 {
+				err = fmt.Errorf("provider returned no completion choices")
+			}
 			if err == nil || errors.Is(err, io.EOF) {
 				// Stream completed successfully
 				finishReason := o.finishReason(string(acc.ChatCompletion.Choices[0].FinishReason))
