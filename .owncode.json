@@ -1,0 +1,8 @@
+{
+  "$schema": "./owncode-schema.json",
+  "lsp": {
+    "gopls": {
+      "command": "gopls"
+    }
+  }
+}

@@ -1,0 +1,57 @@
+version: 2
+project_name: owncode
+before:
+  hooks:
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/muratmirgun/owncode/internal/version.Version={{.Version}}
+    main: ./main.go
+
+archives:
+  - formats: [tar.gz]
+    name_template: >-
+      owncode-
+      {{- if eq .Os "darwin" }}mac-
+      {{- else if eq .Os "windows" }}windows-
+      {{- else if eq .Os "linux" }}linux-{{end}}
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "#86" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+checksum:
+  name_template: "checksums.txt"
+snapshot:
+  version_template: "0.0.0-{{ .Timestamp }}"
+nfpms:
+  - maintainer: muratmirgun
+    description: terminal based agent that can build anything
+    formats:
+      - deb
+      - rpm
+    file_name_template: >-
+      {{ .ProjectName }}-
+      {{- if eq .Os "darwin" }}mac
+      {{- else }}{{ .Os }}{{ end }}-{{ .Arch }}
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^doc:"
+      - "^test:"
+      - "^ci:"
+      - "^ignore:"
+      - "^example:"
+      - "^wip:"
