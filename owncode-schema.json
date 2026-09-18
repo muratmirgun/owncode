@@ -1,0 +1,430 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "agent": {
+      "description": "Agent configuration",
+      "properties": {
+        "maxTokens": {
+          "description": "Maximum tokens for the agent",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "model": {
+          "description": "Model ID for the agent",
+          "enum": [
+            "azure.gpt-4.1",
+            "azure.gpt-4.1-mini",
+            "azure.gpt-4.1-nano",
+            "azure.gpt-4.5-preview",
+            "azure.gpt-4o",
+            "azure.gpt-4o-mini",
+            "azure.o1",
+            "azure.o1-mini",
+            "azure.o3",
+            "azure.o3-mini",
+            "azure.o4-mini",
+            "bedrock.claude-3.7-sonnet",
+            "claude-3-haiku",
+            "claude-3-opus",
+            "claude-3.5-haiku",
+            "claude-3.5-sonnet",
+            "claude-3.7-sonnet",
+            "claude-4-opus",
+            "claude-4-sonnet",
+            "copilot.claude-3.5-sonnet",
+            "copilot.claude-3.7-sonnet",
+            "copilot.claude-3.7-sonnet-thought",
+            "copilot.claude-sonnet-4",
+            "copilot.gemini-2.0-flash",
+            "copilot.gemini-2.5-pro",
+            "copilot.gpt-3.5-turbo",
+            "copilot.gpt-4",
+            "copilot.gpt-4.1",
+            "copilot.gpt-4o",
+            "copilot.gpt-4o-mini",
+            "copilot.o1",
+            "copilot.o3-mini",
+            "copilot.o4-mini",
+            "deepseek-r1-distill-llama-70b",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-2.5",
+            "gemini-2.5-flash",
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4.1-nano",
+            "gpt-4.5-preview",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "grok-3-beta",
+            "grok-3-fast-beta",
+            "grok-3-mini-beta",
+            "grok-3-mini-fast-beta",
+            "llama-3.3-70b-versatile",
+            "meta-llama/llama-4-maverick-17b-128e-instruct",
+            "meta-llama/llama-4-scout-17b-16e-instruct",
+            "o1",
+            "o1-mini",
+            "o1-pro",
+            "o3",
+            "o3-mini",
+            "o4-mini",
+            "openrouter.claude-3-haiku",
+            "openrouter.claude-3-opus",
+            "openrouter.claude-3.5-haiku",
+            "openrouter.claude-3.5-sonnet",
+            "openrouter.claude-3.7-sonnet",
+            "openrouter.deepseek-r1-free",
+            "openrouter.gemini-2.5",
+            "openrouter.gemini-2.5-flash",
+            "openrouter.gpt-4.1",
+            "openrouter.gpt-4.1-mini",
+            "openrouter.gpt-4.1-nano",
+            "openrouter.gpt-4.5-preview",
+            "openrouter.gpt-4o",
+            "openrouter.gpt-4o-mini",
+            "openrouter.o1",
+            "openrouter.o1-mini",
+            "openrouter.o1-pro",
+            "openrouter.o3",
+            "openrouter.o3-mini",
+            "openrouter.o4-mini",
+            "qwen-qwq",
+            "vertexai.gemini-2.5",
+            "vertexai.gemini-2.5-flash"
+          ],
+          "type": "string"
+        },
+        "reasoningEffort": {
+          "description": "Reasoning effort for models that support it (OpenAI, Anthropic)",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "type": "object"
+    }
+  },
+  "description": "Configuration schema for the OwnCode application",
+  "properties": {
+    "agents": {
+      "additionalProperties": {
+        "description": "Agent configuration",
+        "properties": {
+          "maxTokens": {
+            "description": "Maximum tokens for the agent",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "model": {
+            "description": "Model ID for the agent",
+            "enum": [
+              "o3",
+              "o3-mini",
+              "azure.o4-mini",
+              "azure.gpt-4o",
+              "openrouter.o3",
+              "gemini-2.5",
+              "deepseek-r1-distill-llama-70b",
+              "openrouter.gpt-4.1-mini",
+              "openrouter.gpt-4.1-nano",
+              "copilot.gpt-4",
+              "copilot.gpt-4o-mini",
+              "copilot.o3-mini",
+              "gemini-2.5-flash",
+              "azure.o3",
+              "copilot.gemini-2.0-flash",
+              "claude-3.7-sonnet",
+              "gpt-4.5-preview",
+              "azure.gpt-4o-mini",
+              "openrouter.o1-mini",
+              "openrouter.gemini-2.5",
+              "grok-3-mini-fast-beta",
+              "claude-3-opus",
+              "qwen-qwq",
+              "azure.o1-mini",
+              "vertexai.gemini-2.5-flash",
+              "copilot.claude-sonnet-4",
+              "copilot.o1",
+              "claude-4-sonnet",
+              "gpt-4.1-mini",
+              "gemini-2.0-flash",
+              "gemini-2.0-flash-lite",
+              "openrouter.gpt-4o",
+              "grok-3-mini-beta",
+              "copilot.gpt-4.1",
+              "openrouter.o3-mini",
+              "claude-3.5-haiku",
+              "gpt-4.1",
+              "gpt-4o-mini",
+              "azure.gpt-4.1",
+              "azure.gpt-4.5-preview",
+              "openrouter.deepseek-r1-free",
+              "copilot.claude-3.7-sonnet-thought",
+              "llama-3.3-70b-versatile",
+              "openrouter.gpt-4.5-preview",
+              "vertexai.gemini-2.5",
+              "copilot.claude-3.7-sonnet",
+              "bedrock.claude-3.7-sonnet",
+              "grok-3-fast-beta",
+              "copilot.gpt-3.5-turbo",
+              "claude-3-haiku",
+              "meta-llama/llama-4-scout-17b-16e-instruct",
+              "azure.gpt-4.1-nano",
+              "azure.o1",
+              "openrouter.gemini-2.5-flash",
+              "copilot.gemini-2.5-pro",
+              "gpt-4o",
+              "o1",
+              "o4-mini",
+              "grok-3-beta",
+              "copilot.o4-mini",
+              "openrouter.claude-3.5-sonnet",
+              "openrouter.o4-mini",
+              "meta-llama/llama-4-maverick-17b-128e-instruct",
+              "o1-mini",
+              "claude-4-opus",
+              "gpt-4.1-nano",
+              "o1-pro",
+              "openrouter.o1",
+              "openrouter.gpt-4.1",
+              "openrouter.claude-3-opus",
+              "claude-3.5-sonnet",
+              "azure.o3-mini",
+              "openrouter.o1-pro",
+              "openrouter.claude-3.7-sonnet",
+              "openrouter.claude-3.5-haiku",
+              "copilot.claude-3.5-sonnet",
+              "azure.gpt-4.1-mini",
+              "openrouter.gpt-4o-mini",
+              "openrouter.claude-3-haiku",
+              "copilot.gpt-4o"
+            ],
+            "type": "string"
+          },
+          "reasoningEffort": {
+            "description": "Reasoning effort for models that support it (OpenAI, Anthropic)",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "model"
+        ],
+        "type": "object"
+      },
+      "description": "Agent configurations",
+      "properties": {
+        "coder": {
+          "$ref": "#/definitions/agent"
+        },
+        "task": {
+          "$ref": "#/definitions/agent"
+        },
+        "title": {
+          "$ref": "#/definitions/agent"
+        }
+      },
+      "type": "object"
+    },
+    "contextPaths": {
+      "default": [
+        ".github/copilot-instructions.md",
+        ".cursorrules",
+        ".cursor/rules/",
+        "CLAUDE.md",
+        "CLAUDE.local.md",
+        "owncode.md",
+        "owncode.local.md",
+        "OwnCode.md",
+        "OwnCode.local.md",
+        "OWNCODE.md",
+        "OWNCODE.local.md"
+      ],
+      "description": "Context paths for the application",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "data": {
+      "description": "Storage configuration",
+      "properties": {
+        "directory": {
+          "default": ".owncode",
+          "description": "Directory where application data is stored",
+          "type": "string"
+        }
+      },
+      "required": [
+        "directory"
+      ],
+      "type": "object"
+    },
+    "debug": {
+      "default": false,
+      "description": "Enable debug mode",
+      "type": "boolean"
+    },
+    "debugLSP": {
+      "default": false,
+      "description": "Enable LSP debug mode",
+      "type": "boolean"
+    },
+    "lsp": {
+      "additionalProperties": {
+        "description": "LSP configuration for a language",
+        "properties": {
+          "args": {
+            "description": "Command arguments for the LSP server",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "command": {
+            "description": "Command to execute for the LSP server",
+            "type": "string"
+          },
+          "disabled": {
+            "default": false,
+            "description": "Whether the LSP is disabled",
+            "type": "boolean"
+          },
+          "options": {
+            "description": "Additional options for the LSP server",
+            "type": "object"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "type": "object"
+      },
+      "description": "Language Server Protocol configurations",
+      "type": "object"
+    },
+    "mcpServers": {
+      "additionalProperties": {
+        "description": "MCP server configuration",
+        "properties": {
+          "args": {
+            "description": "Command arguments for the MCP server",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "command": {
+            "description": "Command to execute for the MCP server",
+            "type": "string"
+          },
+          "env": {
+            "description": "Environment variables for the MCP server",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "HTTP headers for SSE type MCP servers",
+            "type": "object"
+          },
+          "type": {
+            "default": "stdio",
+            "description": "Type of MCP server",
+            "enum": [
+              "stdio",
+              "sse"
+            ],
+            "type": "string"
+          },
+          "url": {
+            "description": "URL for SSE type MCP servers",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "type": "object"
+      },
+      "description": "Model Control Protocol server configurations",
+      "type": "object"
+    },
+    "providers": {
+      "additionalProperties": {
+        "description": "Provider configuration",
+        "properties": {
+          "apiKey": {
+            "description": "API key for the provider",
+            "type": "string"
+          },
+          "disabled": {
+            "default": false,
+            "description": "Whether the provider is disabled",
+            "type": "boolean"
+          },
+          "provider": {
+            "description": "Provider type",
+            "enum": [
+              "anthropic",
+              "openai",
+              "gemini",
+              "groq",
+              "openrouter",
+              "bedrock",
+              "azure",
+              "vertexai"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "description": "LLM provider configurations",
+      "type": "object"
+    },
+    "tui": {
+      "description": "Terminal User Interface configuration",
+      "properties": {
+        "theme": {
+          "default": "owncode",
+          "description": "TUI theme name",
+          "enum": [
+            "owncode",
+            "catppuccin",
+            "dracula",
+            "flexoki",
+            "gruvbox",
+            "monokai",
+            "onedark",
+            "tokyonight",
+            "tron"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "wd": {
+      "description": "Working directory for the application",
+      "type": "string"
+    }
+  },
+  "title": "OwnCode Configuration",
+  "type": "object"
+}
