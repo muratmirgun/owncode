@@ -112,6 +112,9 @@ func (m *modelDialogCmp) Init() tea.Cmd {
 func (m *modelDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if len(m.models) == 0 && !key.Matches(msg, modelKeys.Escape) {
+			return m, util.ReportWarn("No models available. Configure a provider and restart OwnCode.")
+		}
 		switch {
 		case key.Matches(msg, modelKeys.Up) || key.Matches(msg, modelKeys.K):
 			m.moveSelectionUp()

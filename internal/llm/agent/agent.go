@@ -24,6 +24,8 @@ import (
 var (
 	ErrRequestCancelled = errors.New("request cancelled by user")
 	ErrSessionBusy      = errors.New("session is currently processing another request")
+	// ErrNotConfigured means no model is available for sending messages.
+	ErrNotConfigured = errors.New("no model configured: configure a provider in .owncode.json or set a provider API key, then restart OwnCode")
 )
 
 type AgentEventType string
@@ -76,6 +78,14 @@ func NewAgent(
 	messages message.Service,
 	agentTools []tools.BaseTool,
 ) (Service, error) {
+	if agentName == config.AgentCoder && config.Get().Agents[agentName].Model == "" {
+		return &agent{
+			Broker:   pubsub.NewBroker[AgentEvent](),
+			sessions: sessions,
+			messages: messages,
+			tools:    agentTools,
+		}, nil
+	}
 	agentProvider, err := createAgentProvider(agentName)
 	if err != nil {
 		return nil, err
@@ -111,6 +121,9 @@ func NewAgent(
 }
 
 func (a *agent) Model() models.Model {
+	if a.provider == nil {
+		return models.Model{Name: "No model configured"}
+	}
 	return a.provider.Model()
 }
 
@@ -196,6 +209,9 @@ func (a *agent) err(err error) AgentEvent {
 }
 
 func (a *agent) Run(ctx context.Context, sessionID string, content string, attachments ...message.Attachment) (<-chan AgentEvent, error) {
+	if a.provider == nil {
+		return nil, ErrNotConfigured
+	}
 	if !a.provider.Model().SupportsAttachments && attachments != nil {
 		attachments = nil
 	}
@@ -514,6 +530,9 @@ func (a *agent) TrackUsage(ctx context.Context, sessionID string, model models.M
 }
 
 func (a *agent) Update(agentName config.AgentName, modelID models.ModelID) (models.Model, error) {
+	if a.provider == nil {
+		return models.Model{}, ErrNotConfigured
+	}
 	if a.IsBusy() {
 		return models.Model{}, fmt.Errorf("cannot change model while processing requests")
 	}
@@ -533,6 +552,9 @@ func (a *agent) Update(agentName config.AgentName, modelID models.ModelID) (mode
 }
 
 func (a *agent) Summarize(ctx context.Context, sessionID string) error {
+	if a.provider == nil {
+		return ErrNotConfigured
+	}
 	if a.summarizeProvider == nil {
 		return fmt.Errorf("summarize provider not available")
 	}

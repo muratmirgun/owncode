@@ -39,7 +39,9 @@ go build -o bin/owncode .
 ./bin/owncode
 ```
 
-The terminal interface needs a provider configuration before it can send model requests.
+OwnCode opens the terminal interface without a model or API key.
+It displays `No model configured` and blocks message sending and summarization until a provider is configured.
+Blocked messages remain in the editor; OwnCode does not create a session for them.
 Set a supported provider key, such as `ANTHROPIC_API_KEY`, in your shell before starting OwnCode.
 The inherited model list can contain retired models. Select an available model before sending a request.
 

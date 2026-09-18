@@ -16,7 +16,7 @@ Environment: macOS arm64, Go 1.26.4.
 | `go test -race -short ./...` | Failed in the inherited directory-listing test |
 | `golangci-lint run ./...` | Reported 78 inherited issues |
 
-## Launch
+## Launch (initial commit)
 
 The first launch without provider credentials returned `agent coder not found`.
 A second launch used a dummy Anthropic key to check terminal startup only.
@@ -56,3 +56,22 @@ The README links to the original project.
 OwnCode now uses its own module path, command, settings, data paths, theme, and release assets.
 The release configuration no longer targets the original Homebrew or AUR repositories.
 Compact Engine integration remains future work.
+
+## Update: startup without a model
+
+OwnCode now opens without provider credentials.
+The interface displays `No model configured` and keeps model actions disabled.
+Enter preserves the draft and displays a setup notice.
+No session or message is created for a blocked send.
+Project initialization does not appear automatically until a model is available.
+The empty model menu handles navigation and Enter without a panic.
+Non-interactive prompts return a setup error before creating a session.
+Configure a provider and restart OwnCode to enable model requests.
+
+Validation:
+
+- `go run main.go` opened the interface without a key.
+- An Enter attempt preserved the draft; the database still contained zero sessions and zero messages.
+- `go test -race ./internal/config ./internal/llm/agent ./internal/tui/...` passed.
+- `go vet ./...` and the build passed.
+- The linter still reported the same 78 inherited issues.

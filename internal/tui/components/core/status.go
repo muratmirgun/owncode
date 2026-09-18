@@ -125,7 +125,7 @@ func (m statusCmp) View() string {
 	status := getHelpWidget()
 
 	tokenInfoWidth := 0
-	if m.session.ID != "" {
+	if m.session.ID != "" && model.ContextWindow > 0 {
 		totalTokens := m.session.PromptTokens + m.session.CompletionTokens
 		tokens := formatTokensAndCost(totalTokens, model.ContextWindow, m.session.Cost)
 		tokensStyle := styles.Padded().
@@ -273,7 +273,7 @@ func (m statusCmp) model() string {
 
 	coder, ok := cfg.Agents[config.AgentCoder]
 	if !ok {
-		return "Unknown"
+		return "No model configured"
 	}
 	model := models.SupportedModels[coder.Model]
 
