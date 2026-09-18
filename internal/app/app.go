@@ -98,6 +98,10 @@ func (app *App) initTheme() {
 
 // RunNonInteractive handles the execution flow when a prompt is provided via CLI flag.
 func (a *App) RunNonInteractive(ctx context.Context, prompt string, outputFormat string, quiet bool) error {
+	if a.CoderAgent.Model().ID == "" {
+		return agent.ErrNotConfigured
+	}
+
 	logging.Info("Running in non-interactive mode")
 
 	// Start spinner if not in quiet mode

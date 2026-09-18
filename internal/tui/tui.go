@@ -173,7 +173,7 @@ func (a appModel) Init() tea.Cmd {
 				Msg:  "Failed to check init status: " + err.Error(),
 			}
 		}
-		return dialog.ShowInitDialogMsg{Show: shouldShow}
+		return dialog.ShowInitDialogMsg{Show: shouldShow && a.app.CoderAgent.Model().ID != ""}
 	})
 
 	return tea.Batch(cmds...)
@@ -304,6 +304,9 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case startCompactSessionMsg:
+		if a.app.CoderAgent.Model().ID == "" {
+			return a, util.ReportWarn(agent.ErrNotConfigured.Error())
+		}
 		// Start compacting the current session
 		a.isCompacting = true
 		a.compactingMessage = "Starting summarization..."

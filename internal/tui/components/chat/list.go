@@ -372,6 +372,9 @@ func (m *messagesCmp) working() string {
 }
 
 func (m *messagesCmp) help() string {
+	if m.app.CoderAgent.Model().ID == "" {
+		return "No model configured. Configure a provider and restart to send messages."
+	}
 	t := theme.CurrentTheme()
 	baseStyle := styles.BaseStyle()
 

@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muratmirgun/owncode/internal/app"
+	"github.com/muratmirgun/owncode/internal/llm/agent"
 	"github.com/muratmirgun/owncode/internal/logging"
 	"github.com/muratmirgun/owncode/internal/message"
 	"github.com/muratmirgun/owncode/internal/session"
@@ -80,6 +81,10 @@ const (
 )
 
 func (m *editorCmp) openEditor() tea.Cmd {
+	if m.app.CoderAgent.Model().ID == "" {
+		return util.ReportWarn(agent.ErrNotConfigured.Error())
+	}
+
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
 		editor = "nvim"
@@ -120,6 +125,10 @@ func (m *editorCmp) Init() tea.Cmd {
 }
 
 func (m *editorCmp) send() tea.Cmd {
+	if m.app.CoderAgent.Model().ID == "" {
+		return util.ReportWarn(agent.ErrNotConfigured.Error())
+	}
+
 	if m.app.CoderAgent.IsSessionBusy(m.session.ID) {
 		return util.ReportWarn("Agent is working, please wait...")
 	}
