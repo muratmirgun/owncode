@@ -256,34 +256,34 @@ func (p *chatPage) homeView() (string, int, int) {
 	return styles.Surface(view, t.Background()), x, y + lipgloss.Height(logo) + 2
 }
 
+// homeLogo uses the ANSI Shadow glyphs from the TAAG font catalog.
 func homeLogo(width int) string {
-	t := theme.CurrentTheme()
 	base := styles.BaseStyle()
-	if width < 46 {
-		return base.Foreground(t.Text()).Bold(true).Width(width).Align(lipgloss.Center).Render("owncode")
+	ownStyle := base.Foreground(theme.AdaptiveColor{Dark: "#EEEEEE", Light: "#242424"})
+	codeStyle := base.Foreground(theme.AdaptiveColor{Dark: "#8C8C8C", Light: "#737373"})
+	own := []string{
+		" ██████╗ ██╗    ██╗███╗   ██╗",
+		"██╔═══██╗██║    ██║████╗  ██║",
+		"██║   ██║██║ █╗ ██║██╔██╗ ██║",
+		"██║   ██║██║███╗██║██║╚██╗██║",
+		"╚██████╔╝╚███╔███╔╝██║ ╚████║",
+		" ╚═════╝  ╚══╝╚══╝ ╚═╝  ╚═══╝",
 	}
-	glyphs := map[rune][]string{
-		'o': {"█████", "█   █", "█   █", "█   █", "█████"},
-		'w': {"█   █", "█   █", "█ █ █", "█ █ █", "█████"},
-		'n': {"█████", "█   █", "█   █", "█   █", "█   █"},
-		'c': {"█████", "█    ", "█    ", "█    ", "█████"},
-		'd': {"    █", "    █", "█████", "█   █", "█████"},
-		'e': {"█████", "█   █", "█████", "█    ", "█████"},
+	code := []string{
+		" ██████╗ ██████╗ ██████╗ ███████╗",
+		"██╔════╝██╔═══██╗██╔══██╗██╔════╝",
+		"██║     ██║   ██║██║  ██║█████╗  ",
+		"██║     ██║   ██║██║  ██║██╔══╝  ",
+		"╚██████╗╚██████╔╝██████╔╝███████╗",
+		" ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝",
 	}
-	var lines []string
-	for row := range 5 {
-		var line strings.Builder
-		for i, letter := range "owncode" {
-			color := t.TextMuted()
-			if i >= 3 {
-				color = t.Text()
-			}
-			line.WriteString(base.Foreground(color).Render(glyphs[letter][row]))
-			if i < 6 {
-				line.WriteByte(' ')
-			}
-		}
-		lines = append(lines, base.Width(width).Align(lipgloss.Center).Render(line.String()))
+	if width < lipgloss.Width(own[0]+code[0]) {
+		return base.Width(width).Align(lipgloss.Center).Render(ownStyle.Render("Own") + codeStyle.Render("Code"))
+	}
+	lines := make([]string, len(own))
+	for row := range own {
+		line := ownStyle.Render(own[row]) + codeStyle.Render(code[row])
+		lines[row] = base.Width(width).Align(lipgloss.Center).Render(line)
 	}
 	return strings.Join(lines, "\n")
 }
