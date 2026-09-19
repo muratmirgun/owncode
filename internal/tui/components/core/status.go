@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/llm/models"
 	"github.com/muratmirgun/owncode/internal/lsp"
@@ -118,65 +119,32 @@ func formatTokensAndCost(tokens, contextWindow int64, cost float64) string {
 
 func (m statusCmp) View() string {
 	t := theme.CurrentTheme()
-	modelID := config.Get().Agents[config.AgentCoder].Model
-	model := models.SupportedModels[modelID]
-
-	// Initialize the help widget
-	status := getHelpWidget()
-
-	tokenInfoWidth := 0
-	if m.session.ID != "" && model.ContextWindow > 0 {
-		totalTokens := m.session.PromptTokens + m.session.CompletionTokens
-		tokens := formatTokensAndCost(totalTokens, model.ContextWindow, m.session.Cost)
-		tokensStyle := styles.Padded().
-			Background(t.Text()).
-			Foreground(t.BackgroundSecondary())
-		percentage := (float64(totalTokens) / float64(model.ContextWindow)) * 100
-		if percentage > 80 {
-			tokensStyle = tokensStyle.Background(t.Warning())
-		}
-		tokenInfoWidth = lipgloss.Width(tokens) + 2
-		status += tokensStyle.Render(tokens)
-	}
-
-	diagnostics := styles.Padded().
-		Background(t.BackgroundDarker()).
-		Render(m.projectDiagnostics())
-
-	availableWidht := max(0, m.width-lipgloss.Width(helpWidget)-lipgloss.Width(m.model())-lipgloss.Width(diagnostics)-tokenInfoWidth)
-
+	width := max(1, m.width-2)
+	text := "/ commands · ctrl+? help"
+	color := t.TextMuted()
 	if m.info.Msg != "" {
-		infoStyle := styles.Padded().
-			Foreground(t.Background()).
-			Width(availableWidht)
-
+		text = strings.Join(strings.Fields(m.info.Msg), " ")
 		switch m.info.Type {
-		case util.InfoTypeInfo:
-			infoStyle = infoStyle.Background(t.Info())
 		case util.InfoTypeWarn:
-			infoStyle = infoStyle.Background(t.Warning())
+			color = t.Warning()
 		case util.InfoTypeError:
-			infoStyle = infoStyle.Background(t.Error())
+			color = t.Error()
+		default:
+			color = t.Info()
 		}
-
-		infoWidth := availableWidht - 10
-		// Truncate message if it's longer than available width
-		msg := m.info.Msg
-		if len(msg) > infoWidth && infoWidth > 0 {
-			msg = msg[:infoWidth] + "..."
-		}
-		status += infoStyle.Render(msg)
 	} else {
-		status += styles.Padded().
-			Foreground(t.Text()).
-			Background(t.BackgroundSecondary()).
-			Width(availableWidht).
-			Render("")
+		model := models.SupportedModels[config.Get().Agents[config.AgentCoder].Model]
+		if m.session.ID != "" && model.ContextWindow > 0 {
+			text += " · " + formatTokensAndCost(m.session.PromptTokens+m.session.CompletionTokens, model.ContextWindow, m.session.Cost)
+		}
+		diagnostics := ansi.Strip(m.projectDiagnostics())
+		if diagnostics != "No diagnostics" && diagnostics != "" {
+			text += " · " + diagnostics
+		}
 	}
-
-	status += diagnostics
-	status += m.model()
-	return status
+	view := styles.BaseStyle().Background(t.BackgroundDarker()).Foreground(color).
+		Width(m.width).Padding(0, 1).Render(ansi.Truncate(text, width, "…"))
+	return styles.Surface(view, t.BackgroundDarker())
 }
 
 func (m *statusCmp) projectDiagnostics() string {

@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/diff"
 	"github.com/muratmirgun/owncode/internal/llm/tools"
 	"github.com/muratmirgun/owncode/internal/permission"
@@ -150,31 +151,31 @@ func (p *permissionDialogCmp) selectCurrentOption() tea.Cmd {
 
 func (p *permissionDialogCmp) renderButtons() string {
 	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
+	baseStyle := styles.BaseStyle().Background(t.BackgroundSecondary())
 
 	allowStyle := baseStyle
 	allowSessionStyle := baseStyle
 	denyStyle := baseStyle
-	spacerStyle := baseStyle.Background(t.Background())
+	spacerStyle := baseStyle.Background(t.BackgroundSecondary())
 
 	// Style the selected button
 	switch p.selectedOption {
 	case 0:
-		allowStyle = allowStyle.Background(t.Primary()).Foreground(t.Background())
-		allowSessionStyle = allowSessionStyle.Background(t.Background()).Foreground(t.Primary())
-		denyStyle = denyStyle.Background(t.Background()).Foreground(t.Primary())
+		allowStyle = allowStyle.Background(t.Primary()).Foreground(t.BackgroundSecondary())
+		allowSessionStyle = allowSessionStyle.Background(t.BackgroundSecondary()).Foreground(t.Primary())
+		denyStyle = denyStyle.Background(t.BackgroundSecondary()).Foreground(t.Primary())
 	case 1:
-		allowStyle = allowStyle.Background(t.Background()).Foreground(t.Primary())
-		allowSessionStyle = allowSessionStyle.Background(t.Primary()).Foreground(t.Background())
-		denyStyle = denyStyle.Background(t.Background()).Foreground(t.Primary())
+		allowStyle = allowStyle.Background(t.BackgroundSecondary()).Foreground(t.Primary())
+		allowSessionStyle = allowSessionStyle.Background(t.Primary()).Foreground(t.BackgroundSecondary())
+		denyStyle = denyStyle.Background(t.BackgroundSecondary()).Foreground(t.Primary())
 	case 2:
-		allowStyle = allowStyle.Background(t.Background()).Foreground(t.Primary())
-		allowSessionStyle = allowSessionStyle.Background(t.Background()).Foreground(t.Primary())
-		denyStyle = denyStyle.Background(t.Primary()).Foreground(t.Background())
+		allowStyle = allowStyle.Background(t.BackgroundSecondary()).Foreground(t.Primary())
+		allowSessionStyle = allowSessionStyle.Background(t.BackgroundSecondary()).Foreground(t.Primary())
+		denyStyle = denyStyle.Background(t.Primary()).Foreground(t.BackgroundSecondary())
 	}
 
 	allowButton := allowStyle.Padding(0, 1).Render("Allow (a)")
-	allowSessionButton := allowSessionStyle.Padding(0, 1).Render("Allow for session (s)")
+	allowSessionButton := allowSessionStyle.Padding(0, 1).Render("Session (s)")
 	denyButton := denyStyle.Padding(0, 1).Render("Deny (d)")
 
 	content := lipgloss.JoinHorizontal(
@@ -187,6 +188,9 @@ func (p *permissionDialogCmp) renderButtons() string {
 		spacerStyle.Render("  "),
 	)
 
+	if lipgloss.Width(content) > p.width {
+		content = lipgloss.JoinVertical(lipgloss.Left, allowButton, allowSessionButton, denyButton)
+	}
 	remainingWidth := p.width - lipgloss.Width(content)
 	if remainingWidth > 0 {
 		content = spacerStyle.Render(strings.Repeat(" ", remainingWidth)) + content
@@ -196,89 +200,29 @@ func (p *permissionDialogCmp) renderButtons() string {
 
 func (p *permissionDialogCmp) renderHeader() string {
 	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
-
-	toolKey := baseStyle.Foreground(t.TextMuted()).Bold(true).Render("Tool")
-	toolValue := baseStyle.
-		Foreground(t.Text()).
-		Width(p.width - lipgloss.Width(toolKey)).
-		Render(fmt.Sprintf(": %s", p.permission.ToolName))
-
-	pathKey := baseStyle.Foreground(t.TextMuted()).Bold(true).Render("Path")
-	pathValue := baseStyle.
-		Foreground(t.Text()).
-		Width(p.width - lipgloss.Width(pathKey)).
-		Render(fmt.Sprintf(": %s", p.permission.Path))
-
-	headerParts := []string{
-		lipgloss.JoinHorizontal(
-			lipgloss.Left,
-			toolKey,
-			toolValue,
-		),
-		baseStyle.Render(strings.Repeat(" ", p.width)),
-		lipgloss.JoinHorizontal(
-			lipgloss.Left,
-			pathKey,
-			pathValue,
-		),
-		baseStyle.Render(strings.Repeat(" ", p.width)),
+	path := p.permission.Path
+	switch params := p.permission.Params.(type) {
+	case tools.EditPermissionsParams:
+		path = params.FilePath
+	case tools.WritePermissionsParams:
+		path = params.FilePath
 	}
-
-	// Add tool-specific header information
-	switch p.permission.ToolName {
-	case tools.BashToolName:
-		headerParts = append(headerParts, baseStyle.Foreground(t.TextMuted()).Width(p.width).Bold(true).Render("Command"))
-	case tools.EditToolName:
-		params := p.permission.Params.(tools.EditPermissionsParams)
-		fileKey := baseStyle.Foreground(t.TextMuted()).Bold(true).Render("File")
-		filePath := baseStyle.
-			Foreground(t.Text()).
-			Width(p.width - lipgloss.Width(fileKey)).
-			Render(fmt.Sprintf(": %s", params.FilePath))
-		headerParts = append(headerParts,
-			lipgloss.JoinHorizontal(
-				lipgloss.Left,
-				fileKey,
-				filePath,
-			),
-			baseStyle.Render(strings.Repeat(" ", p.width)),
-		)
-
-	case tools.WriteToolName:
-		params := p.permission.Params.(tools.WritePermissionsParams)
-		fileKey := baseStyle.Foreground(t.TextMuted()).Bold(true).Render("File")
-		filePath := baseStyle.
-			Foreground(t.Text()).
-			Width(p.width - lipgloss.Width(fileKey)).
-			Render(fmt.Sprintf(": %s", params.FilePath))
-		headerParts = append(headerParts,
-			lipgloss.JoinHorizontal(
-				lipgloss.Left,
-				fileKey,
-				filePath,
-			),
-			baseStyle.Render(strings.Repeat(" ", p.width)),
-		)
-	case tools.FetchToolName:
-		headerParts = append(headerParts, baseStyle.Foreground(t.TextMuted()).Width(p.width).Bold(true).Render("URL"))
-	}
-
-	return lipgloss.NewStyle().Background(t.Background()).Render(lipgloss.JoinVertical(lipgloss.Left, headerParts...))
+	return styles.BaseStyle().Background(t.BackgroundSecondary()).Foreground(t.TextMuted()).
+		Width(p.width).Render(ansi.Truncate(p.permission.ToolName+" · "+path, p.width, "…"))
 }
 
 func (p *permissionDialogCmp) renderBashContent() string {
 	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
+	baseStyle := styles.BaseStyle().Background(t.BackgroundSecondary())
 
 	if pr, ok := p.permission.Params.(tools.BashPermissionsParams); ok {
 		content := fmt.Sprintf("```bash\n%s\n```", pr.Command)
 
 		// Use the cache for markdown rendering
 		renderedContent := p.GetOrSetMarkdown(p.permission.ID, func() (string, error) {
-			r := styles.GetMarkdownRenderer(p.width - 10)
+			r := styles.GetMarkdownRenderer(max(1, p.width-2))
 			s, err := r.Render(content)
-			return styles.ForceReplaceBackgroundWithLipgloss(s, t.Background()), err
+			return styles.ForceReplaceBackgroundWithLipgloss(s, t.BackgroundSecondary()), err
 		})
 
 		finalContent := baseStyle.
@@ -329,16 +273,16 @@ func (p *permissionDialogCmp) renderWriteContent() string {
 
 func (p *permissionDialogCmp) renderFetchContent() string {
 	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
+	baseStyle := styles.BaseStyle().Background(t.BackgroundSecondary())
 
 	if pr, ok := p.permission.Params.(tools.FetchPermissionsParams); ok {
 		content := fmt.Sprintf("```bash\n%s\n```", pr.URL)
 
 		// Use the cache for markdown rendering
 		renderedContent := p.GetOrSetMarkdown(p.permission.ID, func() (string, error) {
-			r := styles.GetMarkdownRenderer(p.width - 10)
+			r := styles.GetMarkdownRenderer(max(1, p.width-2))
 			s, err := r.Render(content)
-			return styles.ForceReplaceBackgroundWithLipgloss(s, t.Background()), err
+			return styles.ForceReplaceBackgroundWithLipgloss(s, t.BackgroundSecondary()), err
 		})
 
 		finalContent := baseStyle.
@@ -352,15 +296,15 @@ func (p *permissionDialogCmp) renderFetchContent() string {
 
 func (p *permissionDialogCmp) renderDefaultContent() string {
 	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
+	baseStyle := styles.BaseStyle().Background(t.BackgroundSecondary())
 
 	content := p.permission.Description
 
 	// Use the cache for markdown rendering
 	renderedContent := p.GetOrSetMarkdown(p.permission.ID, func() (string, error) {
-		r := styles.GetMarkdownRenderer(p.width - 10)
+		r := styles.GetMarkdownRenderer(max(1, p.width-2))
 		s, err := r.Render(content)
-		return styles.ForceReplaceBackgroundWithLipgloss(s, t.Background()), err
+		return styles.ForceReplaceBackgroundWithLipgloss(s, t.BackgroundSecondary()), err
 	})
 
 	finalContent := baseStyle.
@@ -378,29 +322,19 @@ func (p *permissionDialogCmp) renderDefaultContent() string {
 func (p *permissionDialogCmp) styleViewport() string {
 	t := theme.CurrentTheme()
 	contentStyle := lipgloss.NewStyle().
-		Background(t.Background())
+		Background(t.BackgroundSecondary())
 
 	return contentStyle.Render(p.contentViewPort.View())
 }
 
 func (p *permissionDialogCmp) render() string {
 	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
-
-	title := baseStyle.
-		Bold(true).
-		Width(p.width - 4).
-		Foreground(t.Primary()).
-		Render("Permission Required")
-	// Render header
+	base := styles.BaseStyle().Background(t.BackgroundSecondary())
+	title := base.Foreground(t.Primary()).Bold(true).Width(p.width).Render("Permission required")
 	headerContent := p.renderHeader()
-	// Render buttons
 	buttons := p.renderButtons()
-
-	// Calculate content height dynamically based on window size
-	p.contentViewPort.Height = p.height - lipgloss.Height(headerContent) - lipgloss.Height(buttons) - 2 - lipgloss.Height(title)
-	p.contentViewPort.Width = p.width - 4
-
+	p.contentViewPort.Width = max(1, p.width)
+	p.contentViewPort.Height = max(1, p.height-4-lipgloss.Height(buttons))
 	// Render content based on tool type
 	var contentFinal string
 	switch p.permission.ToolName {
@@ -418,26 +352,12 @@ func (p *permissionDialogCmp) render() string {
 		contentFinal = p.renderDefaultContent()
 	}
 
-	content := lipgloss.JoinVertical(
-		lipgloss.Top,
-		title,
-		baseStyle.Render(strings.Repeat(" ", lipgloss.Width(title))),
-		headerContent,
-		contentFinal,
-		buttons,
-		baseStyle.Render(strings.Repeat(" ", p.width-4)),
-	)
-
-	return baseStyle.
-		Padding(1, 0, 0, 1).
-		Border(lipgloss.RoundedBorder()).
-		BorderBackground(t.Background()).
-		BorderForeground(t.TextMuted()).
-		Width(p.width).
-		Height(p.height).
-		Render(
-			content,
-		)
+	hint := base.Foreground(t.TextMuted()).Render("↑/↓ scroll · ←/→ choose · enter confirm")
+	content := lipgloss.JoinVertical(lipgloss.Left, title, headerContent, contentFinal, hint, buttons)
+	panel := base.Width(p.width+2).Padding(0, 1).
+		Border(lipgloss.NormalBorder(), true, false, false, false).
+		BorderForeground(t.Primary()).BorderBackground(t.BackgroundSecondary()).Render(content)
+	return styles.Surface(panel, t.BackgroundSecondary())
 }
 
 func (p *permissionDialogCmp) View() string {
@@ -452,28 +372,17 @@ func (p *permissionDialogCmp) SetSize() tea.Cmd {
 	if p.permission.ID == "" {
 		return nil
 	}
-	switch p.permission.ToolName {
-	case tools.BashToolName:
-		p.width = int(float64(p.windowSize.Width) * 0.4)
-		p.height = int(float64(p.windowSize.Height) * 0.3)
-	case tools.EditToolName:
-		p.width = int(float64(p.windowSize.Width) * 0.8)
-		p.height = int(float64(p.windowSize.Height) * 0.8)
-	case tools.WriteToolName:
-		p.width = int(float64(p.windowSize.Width) * 0.8)
-		p.height = int(float64(p.windowSize.Height) * 0.8)
-	case tools.FetchToolName:
-		p.width = int(float64(p.windowSize.Width) * 0.4)
-		p.height = int(float64(p.windowSize.Height) * 0.3)
-	default:
-		p.width = int(float64(p.windowSize.Width) * 0.7)
-		p.height = int(float64(p.windowSize.Height) * 0.5)
-	}
+	p.width = max(1, p.windowSize.Width-2)
+	p.height = max(6, min(12, p.windowSize.Height/3))
+
 	return nil
 }
 
 func (p *permissionDialogCmp) SetPermissions(permission permission.PermissionRequest) tea.Cmd {
 	p.permission = permission
+	p.contentViewPort.GotoTop()
+	p.diffCache = make(map[string]string)
+	p.markdownCache = make(map[string]string)
 	return p.SetSize()
 }
 

@@ -117,6 +117,9 @@ type appModel struct {
 	showSessionDialog bool
 	sessionDialog     dialog.SessionDialog
 
+	showSettings bool
+	settings     tea.Model
+
 	showCommandDialog bool
 	commandDialog     dialog.CommandDialog
 	commands          []dialog.Command
@@ -186,6 +189,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		msg.Height -= 1 // Make space for the status bar
 		a.width, a.height = msg.Width, msg.Height
+		a.settings, _ = a.settings.Update(msg)
 
 		s, _ := a.status.Update(msg)
 		a.status = s.(core.StatusCmp)
@@ -194,7 +198,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		prm, permCmd := a.permissions.Update(msg)
 		a.permissions = prm.(dialog.PermissionDialogCmp)
-		cmds = append(cmds, permCmd)
+		cmds = append(cmds, permCmd, a.syncPermissionPanel())
 
 		help, helpCmd := a.help.Update(msg)
 		a.help = help.(dialog.HelpCmp)
@@ -274,7 +278,8 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Permission
 	case pubsub.Event[permission.PermissionRequest]:
 		a.showPermissions = true
-		return a, a.permissions.SetPermissions(msg.Payload)
+		cmd := a.permissions.SetPermissions(msg.Payload)
+		return a, tea.Batch(cmd, a.syncPermissionPanel())
 	case dialog.PermissionResponseMsg:
 		var cmd tea.Cmd
 		switch msg.Action {
@@ -286,7 +291,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.app.Permissions.Deny(msg.Permission)
 		}
 		a.showPermissions = false
-		return a, cmd
+		return a, tea.Batch(cmd, a.syncPermissionPanel())
 
 	case page.PageChangeMsg:
 		return a, a.moveToPage(msg.ID)
@@ -394,6 +399,8 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case chat.SessionClearedMsg:
+		a.selectedSession = session.Session{}
 	case chat.SessionSelectedMsg:
 		a.selectedSession = msg
 		a.sessionDialog.SetSelectedSession(msg.ID)
@@ -409,6 +416,32 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case chat.SlashCommandMsg:
+		switch string(msg) {
+		case "new":
+			a.selectedSession = session.Session{}
+			return a, util.CmdHandler(chat.SessionClearedMsg{})
+		case "models":
+			a.showModelDialog = true
+		case "themes":
+			a.showThemeDialog = true
+			return a, a.themeDialog.Init()
+		case "settings":
+			a.showSettings = true
+
+		case "sessions":
+			return a, util.CmdHandler(tea.KeyMsg{Type: tea.KeyCtrlS})
+		case "compact":
+			return a, util.CmdHandler(startCompactSessionMsg{})
+		case "help":
+			a.showHelp = true
+		}
+		return a, nil
+	case dialog.CloseSettingsMsg:
+		a.showSettings = false
+		return a, nil
+	case dialog.SettingsActionMsg:
+		return a, util.CmdHandler(chat.SlashCommandMsg(msg))
 	case dialog.CommandSelectedMsg:
 		a.showCommandDialog = false
 		// Execute the command handler if available
@@ -446,6 +479,10 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyMsg:
+		if a.showSettings && !a.showModelDialog && !a.showThemeDialog && !a.showPermissions && !a.showQuit {
+			a.settings, cmd = a.settings.Update(msg)
+			return a, cmd
+		}
 		// If multi-arguments dialog is open, let it handle the key press first
 		if a.showMultiArgumentsDialog {
 			args, cmd := a.multiArgumentsDialog.Update(msg)
@@ -602,7 +639,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if a.showPermissions {
 		d, permissionsCmd := a.permissions.Update(msg)
 		a.permissions = d.(dialog.PermissionDialogCmp)
-		cmds = append(cmds, permissionsCmd)
+		cmds = append(cmds, permissionsCmd, a.syncPermissionPanel())
 		// Only block key messages send all other messages down
 		if _, ok := msg.(tea.KeyMsg); ok {
 			return a, tea.Batch(cmds...)
@@ -666,6 +703,17 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, tea.Batch(cmds...)
 }
 
+// syncPermissionPanel keeps the approval UI in the chat layout.
+func (a *appModel) syncPermissionPanel() tea.Cmd {
+	view := ""
+	if a.showPermissions {
+		view = a.permissions.View()
+	}
+	pageModel, cmd := a.pages[page.ChatPage].Update(chat.PermissionPanelMsg(view))
+	a.pages[page.ChatPage] = pageModel
+	return cmd
+}
+
 // RegisterCommand adds a command to the command dialog
 func (a *appModel) RegisterCommand(cmd dialog.Command) {
 	a.commands = append(a.commands, cmd)
@@ -710,20 +758,9 @@ func (a appModel) View() string {
 	components = append(components, a.status.View())
 
 	appView := lipgloss.JoinVertical(lipgloss.Top, components...)
-
-	if a.showPermissions {
-		overlay := a.permissions.View()
-		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay) / 2
-		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay) / 2
-		appView = layout.PlaceOverlay(
-			col,
-			row,
-			overlay,
-			appView,
-			true,
-		)
+	if a.showSettings {
+		view := a.settings.View()
+		appView = layout.PlaceOverlay(max(0, (a.width-lipgloss.Width(view))/2), max(0, (a.height-lipgloss.Height(view))/2), view, appView, false)
 	}
 
 	if a.showFilepicker {
@@ -911,6 +948,7 @@ func New(app *app.App) tea.Model {
 		quit:          dialog.NewQuitCmp(),
 		sessionDialog: dialog.NewSessionDialogCmp(),
 		commandDialog: dialog.NewCommandDialogCmp(),
+		settings:      dialog.NewSettingsCmp(),
 		modelDialog:   dialog.NewModelDialogCmp(),
 		permissions:   dialog.NewPermissionDialogCmp(),
 		initDialog:    dialog.NewInitDialogCmp(),

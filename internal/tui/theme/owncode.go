@@ -15,10 +15,10 @@ func NewOwnCodeTheme() *OwnCodeTheme {
 	// OwnCode color palette
 	// Dark mode colors
 	darkBackground := "#212121"
-	darkCurrentLine := "#252525"
+	darkCurrentLine := "#292929"
 	darkSelection := "#303030"
 	darkForeground := "#e0e0e0"
-	darkComment := "#6a6a6a"
+	darkComment := "#929292"
 	darkPrimary := "#fab283"   // Primary orange/gold
 	darkSecondary := "#5c9cf5" // Secondary blue
 	darkAccent := "#9d7cd8"    // Accent purple

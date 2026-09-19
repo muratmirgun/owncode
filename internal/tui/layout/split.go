@@ -18,6 +18,7 @@ type SplitPaneLayout interface {
 	ClearLeftPanel() tea.Cmd
 	ClearRightPanel() tea.Cmd
 	ClearBottomPanel() tea.Cmd
+	SetBottomAccessory(view string) tea.Cmd
 }
 
 type splitPaneLayout struct {
@@ -26,9 +27,10 @@ type splitPaneLayout struct {
 	ratio         float64
 	verticalRatio float64
 
-	rightPanel  Container
-	leftPanel   Container
-	bottomPanel Container
+	rightPanel      Container
+	leftPanel       Container
+	bottomPanel     Container
+	bottomAccessory string
 }
 
 type SplitPaneOption func(*splitPaneLayout)
@@ -104,6 +106,9 @@ func (s *splitPaneLayout) View() string {
 
 	if s.bottomPanel != nil && topSection != "" {
 		bottomView := s.bottomPanel.View()
+		if s.bottomAccessory != "" {
+			topSection = lipgloss.JoinVertical(lipgloss.Left, topSection, s.bottomAccessory)
+		}
 		finalView = lipgloss.JoinVertical(lipgloss.Left, topSection, bottomView)
 	} else if s.bottomPanel != nil {
 		finalView = s.bottomPanel.View()
@@ -132,10 +137,20 @@ func (s *splitPaneLayout) SetSize(width, height int) tea.Cmd {
 	var topHeight, bottomHeight int
 	if s.bottomPanel != nil {
 		topHeight = int(float64(height) * s.verticalRatio)
-		bottomHeight = height - topHeight
+		bottomHeight = min(height, max(3, height-topHeight))
+		if preferred, ok := s.bottomPanel.(interface{ PreferredHeight(int) int }); ok {
+			if requested := preferred.PreferredHeight(width); requested > 0 {
+				bottomHeight = min(max(2, height/3), requested)
+			}
+		}
+		topHeight = height - bottomHeight
 	} else {
 		topHeight = height
 		bottomHeight = 0
+	}
+
+	if s.bottomAccessory != "" {
+		topHeight = max(0, topHeight-lipgloss.Height(s.bottomAccessory))
 	}
 
 	var leftWidth, rightWidth int
@@ -280,4 +295,10 @@ func WithVerticalRatio(ratio float64) SplitPaneOption {
 	return func(s *splitPaneLayout) {
 		s.verticalRatio = ratio
 	}
+}
+
+// SetBottomAccessory reserves space for a panel directly above the editor.
+func (s *splitPaneLayout) SetBottomAccessory(view string) tea.Cmd {
+	s.bottomAccessory = view
+	return s.SetSize(s.width, s.height)
 }

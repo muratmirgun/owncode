@@ -3,11 +3,12 @@ package chat
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/diff"
 	"github.com/muratmirgun/owncode/internal/history"
@@ -52,6 +53,9 @@ func (m *sidebarCmp) Init() tea.Cmd {
 
 func (m *sidebarCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case SessionClearedMsg:
+		m.session = session.Session{}
+		clear(m.modFiles)
 	case SessionSelectedMsg:
 		if msg.ID != m.session.ID {
 			m.session = msg
@@ -82,147 +86,44 @@ func (m *sidebarCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *sidebarCmp) View() string {
-	baseStyle := styles.BaseStyle()
-
-	return baseStyle.
-		Width(m.width).
-		PaddingLeft(4).
-		PaddingRight(2).
-		Height(m.height - 1).
-		Render(
-			lipgloss.JoinVertical(
-				lipgloss.Top,
-				header(m.width),
-				" ",
-				m.sessionSection(),
-				" ",
-				lspsConfigured(m.width),
-				" ",
-				m.modifiedFiles(),
-			),
-		)
-}
-
-func (m *sidebarCmp) sessionSection() string {
 	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
-
-	sessionKey := baseStyle.
-		Foreground(t.Primary()).
-		Bold(true).
-		Render("Session")
-
-	sessionValue := baseStyle.
-		Foreground(t.Text()).
-		Width(m.width - lipgloss.Width(sessionKey)).
-		Render(fmt.Sprintf(": %s", m.session.Title))
-
-	return lipgloss.JoinHorizontal(
-		lipgloss.Left,
-		sessionKey,
-		sessionValue,
-	)
-}
-
-func (m *sidebarCmp) modifiedFile(filePath string, additions, removals int) string {
-	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
-
-	stats := ""
-	if additions > 0 && removals > 0 {
-		additionsStr := baseStyle.
-			Foreground(t.Success()).
-			PaddingLeft(1).
-			Render(fmt.Sprintf("+%d", additions))
-
-		removalsStr := baseStyle.
-			Foreground(t.Error()).
-			PaddingLeft(1).
-			Render(fmt.Sprintf("-%d", removals))
-
-		content := lipgloss.JoinHorizontal(lipgloss.Left, additionsStr, removalsStr)
-		stats = baseStyle.Width(lipgloss.Width(content)).Render(content)
-	} else if additions > 0 {
-		additionsStr := fmt.Sprintf(" %s", baseStyle.
-			PaddingLeft(1).
-			Foreground(t.Success()).
-			Render(fmt.Sprintf("+%d", additions)))
-		stats = baseStyle.Width(lipgloss.Width(additionsStr)).Render(additionsStr)
-	} else if removals > 0 {
-		removalsStr := fmt.Sprintf(" %s", baseStyle.
-			PaddingLeft(1).
-			Foreground(t.Error()).
-			Render(fmt.Sprintf("-%d", removals)))
-		stats = baseStyle.Width(lipgloss.Width(removalsStr)).Render(removalsStr)
+	base := styles.BaseStyle().Background(t.BackgroundSecondary())
+	line := func(text string) string {
+		return base.Foreground(t.TextMuted()).Width(m.width).Render(ansi.Truncate(text, max(1, m.width), "…"))
 	}
-
-	filePathStr := baseStyle.Render(filePath)
-
-	return baseStyle.
-		Width(m.width).
-		Render(
-			lipgloss.JoinHorizontal(
-				lipgloss.Left,
-				filePathStr,
-				stats,
-			),
-		)
-}
-
-func (m *sidebarCmp) modifiedFiles() string {
-	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
-
-	modifiedFiles := baseStyle.
-		Width(m.width).
-		Foreground(t.Primary()).
-		Bold(true).
-		Render("Modified Files:")
-
-	// If no modified files, show a placeholder message
-	if m.modFiles == nil || len(m.modFiles) == 0 {
-		message := "No modified files"
-		remainingWidth := m.width - lipgloss.Width(message)
-		if remainingWidth > 0 {
-			message += strings.Repeat(" ", remainingWidth)
-		}
-		return baseStyle.
-			Width(m.width).
-			Render(
-				lipgloss.JoinVertical(
-					lipgloss.Top,
-					modifiedFiles,
-					baseStyle.Foreground(t.TextMuted()).Render(message),
-				),
-			)
+	heading := func(text string) string {
+		return base.Foreground(t.Text()).Bold(true).Width(m.width).Render(ansi.Truncate(text, max(1, m.width), "…"))
 	}
-
-	// Sort file paths alphabetically for consistent ordering
+	title := m.session.Title
+	if title == "" {
+		title = "New chat"
+	}
+	rows := []string{heading("OwnCode"), line(filepath.Base(config.WorkingDirectory())), line(""), heading("Session"), line(title), line(""), heading("Language servers")}
+	var names []string
+	for name := range config.Get().LSP {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		rows = append(rows, line("• "+name))
+	}
+	if len(names) == 0 {
+		rows = append(rows, line("None configured"))
+	}
+	rows = append(rows, line(""), heading("Modified files"))
 	var paths []string
 	for path := range m.modFiles {
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
-
-	// Create views for each file in sorted order
-	var fileViews []string
 	for _, path := range paths {
 		stats := m.modFiles[path]
-		fileViews = append(fileViews, m.modifiedFile(path, stats.additions, stats.removals))
+		rows = append(rows, line(fmt.Sprintf("%s  +%d −%d", path, stats.additions, stats.removals)))
 	}
-
-	return baseStyle.
-		Width(m.width).
-		Render(
-			lipgloss.JoinVertical(
-				lipgloss.Top,
-				modifiedFiles,
-				lipgloss.JoinVertical(
-					lipgloss.Left,
-					fileViews...,
-				),
-			),
-		)
+	if len(paths) == 0 {
+		rows = append(rows, line("No modified files"))
+	}
+	return base.Width(m.width).Height(m.height).MaxHeight(m.height).Render(strings.Join(rows, "\n"))
 }
 
 func (m *sidebarCmp) SetSize(width, height int) tea.Cmd {
