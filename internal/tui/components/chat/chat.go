@@ -23,6 +23,9 @@ type SessionSelectedMsg = session.Session
 
 type SessionClearedMsg struct{}
 
+// PermissionPanelMsg updates the docked permission view.
+type PermissionPanelMsg string
+
 type EditorFocusMsg bool
 
 func header(width int) string {
@@ -138,3 +141,6 @@ func cwd(width int) string {
 		Width(width).
 		Render(cwd)
 }
+
+// HomeEditorMsg switches the editor presentation for the welcome screen.
+type HomeEditorMsg bool

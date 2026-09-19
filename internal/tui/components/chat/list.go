@@ -387,17 +387,8 @@ func (m *messagesCmp) help() string {
 			baseStyle.Foreground(t.Text()).Bold(true).Render("esc"),
 			baseStyle.Foreground(t.TextMuted()).Bold(true).Render(" to exit cancel"),
 		)
-	} else {
-		text += lipgloss.JoinHorizontal(
-			lipgloss.Left,
-			baseStyle.Foreground(t.TextMuted()).Bold(true).Render("press "),
-			baseStyle.Foreground(t.Text()).Bold(true).Render("enter"),
-			baseStyle.Foreground(t.TextMuted()).Bold(true).Render(" to send the message,"),
-			baseStyle.Foreground(t.TextMuted()).Bold(true).Render(" write"),
-			baseStyle.Foreground(t.Text()).Bold(true).Render(" \\"),
-			baseStyle.Foreground(t.TextMuted()).Bold(true).Render(" and enter to add a new line"),
-		)
 	}
+
 	return baseStyle.
 		Width(m.width).
 		Render(text)
@@ -409,9 +400,9 @@ func (m *messagesCmp) initialScreen() string {
 	return baseStyle.Width(m.width).Render(
 		lipgloss.JoinVertical(
 			lipgloss.Top,
-			header(m.width),
+			baseStyle.Bold(true).Render("Start a conversation"),
 			"",
-			lspsConfigured(m.width),
+			baseStyle.Foreground(theme.CurrentTheme().TextMuted()).Render("Ask about your code, or type / for commands."),
 		),
 	)
 }

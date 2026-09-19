@@ -4,6 +4,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muratmirgun/owncode/internal/tui/styles"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
 )
 
@@ -24,11 +25,12 @@ type container struct {
 	paddingBottom int
 	paddingLeft   int
 
-	borderTop    bool
-	borderRight  bool
-	borderBottom bool
-	borderLeft   bool
-	borderStyle  lipgloss.Border
+	borderTop        bool
+	borderRight      bool
+	borderBottom     bool
+	borderLeft       bool
+	borderStyle      lipgloss.Border
+	secondarySurface bool
 }
 
 func (c *container) Init() tea.Cmd {
@@ -47,7 +49,11 @@ func (c *container) View() string {
 	width := c.width
 	height := c.height
 
-	style = style.Background(t.Background())
+	bg := t.Background()
+	if c.secondarySurface {
+		bg = t.BackgroundSecondary()
+	}
+	style = style.Background(bg)
 
 	// Apply border if any side is enabled
 	if c.borderTop || c.borderRight || c.borderBottom || c.borderLeft {
@@ -65,7 +71,7 @@ func (c *container) View() string {
 			width--
 		}
 		style = style.Border(c.borderStyle, c.borderTop, c.borderRight, c.borderBottom, c.borderLeft)
-		style = style.BorderBackground(t.Background()).BorderForeground(t.BorderNormal())
+		style = style.BorderBackground(bg).BorderForeground(t.BorderNormal())
 	}
 	style = style.
 		Width(width).
@@ -75,7 +81,7 @@ func (c *container) View() string {
 		PaddingBottom(c.paddingBottom).
 		PaddingLeft(c.paddingLeft)
 
-	return style.Render(c.content.View())
+	return styles.Surface(style.Render(c.content.View()), bg)
 }
 
 func (c *container) SetSize(width, height int) tea.Cmd {
@@ -202,4 +208,32 @@ func WithThickBorder() ContainerOption {
 
 func WithDoubleBorder() ContainerOption {
 	return WithBorderStyle(lipgloss.DoubleBorder())
+}
+
+// WithSecondarySurface uses the theme panel background, including padding.
+func WithSecondarySurface() ContainerOption {
+	return func(c *container) { c.secondarySurface = true }
+}
+
+// PreferredHeight includes the child's requested height and container spacing.
+func (c *container) PreferredHeight(width int) int {
+	child, ok := c.content.(interface{ PreferredHeight(int) int })
+	if !ok {
+		return 0
+	}
+	horizontal := c.paddingLeft + c.paddingRight
+	vertical := c.paddingTop + c.paddingBottom
+	if c.borderLeft {
+		horizontal++
+	}
+	if c.borderRight {
+		horizontal++
+	}
+	if c.borderTop {
+		vertical++
+	}
+	if c.borderBottom {
+		vertical++
+	}
+	return child.PreferredHeight(max(1, width-horizontal)) + vertical
 }

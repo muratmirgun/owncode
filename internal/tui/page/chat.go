@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/app"
 	"github.com/muratmirgun/owncode/internal/completions"
 	"github.com/muratmirgun/owncode/internal/llm/agent"
@@ -15,6 +16,8 @@ import (
 	"github.com/muratmirgun/owncode/internal/tui/components/chat"
 	"github.com/muratmirgun/owncode/internal/tui/components/dialog"
 	"github.com/muratmirgun/owncode/internal/tui/layout"
+	"github.com/muratmirgun/owncode/internal/tui/styles"
+	"github.com/muratmirgun/owncode/internal/tui/theme"
 	"github.com/muratmirgun/owncode/internal/tui/util"
 )
 
@@ -24,10 +27,13 @@ type chatPage struct {
 	app                  *app.App
 	editor               layout.Container
 	messages             layout.Container
+	sidebar              layout.Container
+	permissionView       string
 	layout               layout.SplitPaneLayout
 	session              session.Session
 	completionDialog     dialog.CompletionDialog
 	showCompletionDialog bool
+	slashView            string
 }
 
 type ChatKeyMap struct {
@@ -62,6 +68,16 @@ func (p *chatPage) Init() tea.Cmd {
 func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
+	case chat.PermissionPanelMsg:
+		p.permissionView = string(msg)
+		cmd := p.layout.SetBottomAccessory(string(msg))
+		w, h := p.layout.GetSize()
+		return p, tea.Batch(cmd, p.SetSize(w, h))
+	case chat.SlashSuggestionsMsg:
+		p.slashView = msg.View
+		return p, nil
+	case chat.SessionClearedMsg:
+		p.session = session.Session{}
 	case tea.WindowSizeMsg:
 		cmd := p.layout.SetSize(msg.Width, msg.Height)
 		cmds = append(cmds, cmd)
@@ -94,25 +110,18 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return p, cmd
 		}
 	case chat.SessionSelectedMsg:
-		if p.session.ID == "" {
-			cmd := p.setSidebar()
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
 		p.session = msg
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, keyMap.ShowCompletionDialog):
 			p.showCompletionDialog = true
 			// Continue sending keys to layout->chat
-		case key.Matches(msg, keyMap.NewSession):
+		case key.Matches(msg, keyMap.NewSession) && p.slashView == "":
 			p.session = session.Session{}
 			return p, tea.Batch(
-				p.clearSidebar(),
 				util.CmdHandler(chat.SessionClearedMsg{}),
 			)
-		case key.Matches(msg, keyMap.Cancel):
+		case key.Matches(msg, keyMap.Cancel) && p.slashView == "":
 			if p.session.ID != "" {
 				// Cancel the current session's generation process
 				// This allows users to interrupt long-running operations
@@ -137,20 +146,13 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	u, cmd := p.layout.Update(msg)
 	cmds = append(cmds, cmd)
 	p.layout = u.(layout.SplitPaneLayout)
+	switch msg.(type) {
+	case tea.WindowSizeMsg, tea.KeyMsg, chat.SessionSelectedMsg, chat.SessionClearedMsg, dialog.AttachmentAddedMsg, dialog.CompletionSelectedMsg:
+		w, h := p.layout.GetSize()
+		cmds = append(cmds, p.SetSize(w, h))
+	}
 
 	return p, tea.Batch(cmds...)
-}
-
-func (p *chatPage) setSidebar() tea.Cmd {
-	sidebarContainer := layout.NewContainer(
-		chat.NewSidebarCmp(p.session, p.app.History),
-		layout.WithPadding(1, 1, 1, 1),
-	)
-	return tea.Batch(p.layout.SetRightPanel(sidebarContainer), sidebarContainer.Init())
-}
-
-func (p *chatPage) clearSidebar() tea.Cmd {
-	return p.layout.ClearRightPanel()
 }
 
 func (p *chatPage) sendMessage(text string, attachments []message.Attachment) tea.Cmd {
@@ -166,10 +168,6 @@ func (p *chatPage) sendMessage(text string, attachments []message.Attachment) te
 		}
 
 		p.session = session
-		cmd := p.setSidebar()
-		if cmd != nil {
-			cmds = append(cmds, cmd)
-		}
 		cmds = append(cmds, util.CmdHandler(chat.SessionSelectedMsg(session)))
 	}
 
@@ -181,7 +179,17 @@ func (p *chatPage) sendMessage(text string, attachments []message.Attachment) te
 }
 
 func (p *chatPage) SetSize(width, height int) tea.Cmd {
-	return p.layout.SetSize(width, height)
+	cmd := p.layout.SetSize(width, height)
+	p.editor.Update(chat.HomeEditorMsg(p.isHome()))
+	if p.isHome() {
+		editorWidth := max(4, min(88, width-8))
+		editorHeight := 3
+		if preferred, ok := p.editor.(interface{ PreferredHeight(int) int }); ok {
+			editorHeight = preferred.PreferredHeight(editorWidth)
+		}
+		p.editor.SetSize(editorWidth, min(max(3, height/3), editorHeight))
+	}
+	return cmd
 }
 
 func (p *chatPage) GetSize() (int, int) {
@@ -190,24 +198,94 @@ func (p *chatPage) GetSize() (int, int) {
 
 func (p *chatPage) View() string {
 	layoutView := p.layout.View()
+	editorX := 0
+	_, layoutHeight := p.layout.GetSize()
+	_, editorHeight := p.editor.GetSize()
+	editorY := layoutHeight - editorHeight
+	if p.isHome() {
+		layoutView, editorX, editorY = p.homeView()
+	}
 
 	if p.showCompletionDialog {
-		_, layoutHeight := p.layout.GetSize()
-		editorWidth, editorHeight := p.editor.GetSize()
+		editorWidth, _ := p.editor.GetSize()
 
 		p.completionDialog.SetWidth(editorWidth)
 		overlay := p.completionDialog.View()
 
 		layoutView = layout.PlaceOverlay(
-			0,
-			layoutHeight-editorHeight-lipgloss.Height(overlay),
+			editorX,
+			max(0, editorY-lipgloss.Height(overlay)),
 			overlay,
 			layoutView,
 			false,
 		)
 	}
 
+	if p.slashView != "" {
+		layoutView = layout.PlaceOverlay(editorX, max(0, editorY-lipgloss.Height(p.slashView)), p.slashView, layoutView, false)
+	}
 	return layoutView
+}
+
+func (p *chatPage) isHome() bool {
+	return p.session.ID == "" && p.permissionView == ""
+}
+
+func (p *chatPage) homeView() (string, int, int) {
+	width, height := p.layout.GetSize()
+	editorWidth, _ := p.editor.GetSize()
+	t := theme.CurrentTheme()
+	base := styles.BaseStyle()
+	logo := homeLogo(editorWidth)
+	keyStyle := base.Foreground(t.Secondary()).Bold(true)
+	labelStyle := base.Foreground(t.TextMuted())
+	hintsText := " " + keyStyle.Render("/") + labelStyle.Render(" commands   ") +
+		keyStyle.Render("ctrl+o") + labelStyle.Render(" models   ") +
+		keyStyle.Render("ctrl+s") + labelStyle.Render(" sessions")
+	hints := base.Width(editorWidth).Render(ansi.Truncate(hintsText, editorWidth, "…"))
+	tipText := base.Foreground(t.Warning()).Bold(true).Render("● Tip  ") +
+		base.Foreground(t.Text()).Render("Use ") + keyStyle.Render("@") +
+		labelStyle.Render(" to add files to your message")
+	tip := base.Width(editorWidth).Align(lipgloss.Center).Render(ansi.Truncate(tipText, editorWidth, "…"))
+
+	content := lipgloss.JoinVertical(lipgloss.Left, logo, "", "", p.editor.View(), hints, "", "", tip)
+	x := max(0, (width-editorWidth)/2)
+	y := max(0, (height-lipgloss.Height(content))/2)
+	background := base.Width(width).Height(height).Render("")
+	view := layout.PlaceOverlay(x, y, content, background, false)
+	return styles.Surface(view, t.Background()), x, y + lipgloss.Height(logo) + 2
+}
+
+func homeLogo(width int) string {
+	t := theme.CurrentTheme()
+	base := styles.BaseStyle()
+	if width < 46 {
+		return base.Foreground(t.Text()).Bold(true).Width(width).Align(lipgloss.Center).Render("owncode")
+	}
+	glyphs := map[rune][]string{
+		'o': {"█████", "█   █", "█   █", "█   █", "█████"},
+		'w': {"█   █", "█   █", "█ █ █", "█ █ █", "█████"},
+		'n': {"█████", "█   █", "█   █", "█   █", "█   █"},
+		'c': {"█████", "█    ", "█    ", "█    ", "█████"},
+		'd': {"    █", "    █", "█████", "█   █", "█████"},
+		'e': {"█████", "█   █", "█████", "█    ", "█████"},
+	}
+	var lines []string
+	for row := range 5 {
+		var line strings.Builder
+		for i, letter := range "owncode" {
+			color := t.TextMuted()
+			if i >= 3 {
+				color = t.Text()
+			}
+			line.WriteString(base.Foreground(color).Render(glyphs[letter][row]))
+			if i < 6 {
+				line.WriteByte(' ')
+			}
+		}
+		lines = append(lines, base.Width(width).Align(lipgloss.Center).Render(line.String()))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (p *chatPage) BindingKeys() []key.Binding {
@@ -227,15 +305,24 @@ func NewChatPage(app *app.App) tea.Model {
 	)
 	editorContainer := layout.NewContainer(
 		chat.NewEditorCmp(app),
-		layout.WithBorder(true, false, false, false),
+		layout.WithBorder(false, false, false, true),
+		layout.WithSecondarySurface(),
+	)
+	sidebarContainer := layout.NewContainer(
+		chat.NewSidebarCmp(session.Session{}, app.History),
+		layout.WithPadding(1, 2, 1, 2),
+		layout.WithBorder(false, false, false, true),
+		layout.WithSecondarySurface(),
 	)
 	return &chatPage{
 		app:              app,
 		editor:           editorContainer,
 		messages:         messagesContainer,
+		sidebar:          sidebarContainer,
 		completionDialog: completionDialog,
 		layout: layout.NewSplitPane(
 			layout.WithLeftPanel(messagesContainer),
+			layout.WithRightPanel(sidebarContainer),
 			layout.WithBottomPanel(editorContainer),
 		),
 	}

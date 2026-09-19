@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/textarea"
@@ -31,4 +32,24 @@ func TestSendWithoutModelPreservesDraft(t *testing.T) {
 	require.Equal(t, util.InfoTypeWarn, warning.Type)
 	require.Equal(t, "keep this draft", editor.textarea.Value())
 	require.Len(t, editor.attachments, 1)
+}
+
+func TestEditorHeightFollowsDraft(t *testing.T) {
+	editor := &editorCmp{textarea: textarea.New()}
+	for _, test := range []struct {
+		text          string
+		width, height int
+	}{
+		{"", 40, 2},
+		{"hello", 40, 2},
+		{"one\ntwo\nthree", 40, 4},
+		{strings.Repeat("x", 50), 23, 4},
+		{strings.Repeat("line\n", 20), 40, 9},
+		{"", 40, 2},
+	} {
+		editor.textarea.SetValue(test.text)
+		require.Equal(t, test.height, editor.PreferredHeight(test.width))
+	}
+	editor.home = true
+	require.Equal(t, 3, editor.PreferredHeight(40))
 }

@@ -3,6 +3,7 @@ package styles
 import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
+	"strings"
 )
 
 var (
@@ -152,4 +153,17 @@ func BorderFocusedColor() lipgloss.AdaptiveColor {
 // BorderDimColor returns the dim border color from the current theme
 func BorderDimColor() lipgloss.AdaptiveColor {
 	return theme.CurrentTheme().BorderDim()
+}
+
+// Surface restores a panel background after nested styles reset their colors.
+// This also paints the unstyled padding emitted by textareas and joined views.
+func Surface(content string, background lipgloss.TerminalColor) string {
+	sample := lipgloss.NewStyle().Background(background).Render(" ")
+	end := strings.IndexByte(sample, 'm')
+	if !strings.HasPrefix(sample, "\x1b[") || end < 0 {
+		return content
+	}
+	color := sample[:end+1]
+	content = strings.NewReplacer("\x1b[0m", "\x1b[0m"+color, "\x1b[m", "\x1b[m"+color, "\x1b[49m", color).Replace(content)
+	return color + content + "\x1b[0m"
 }

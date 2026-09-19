@@ -6,16 +6,19 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/app"
 	"github.com/muratmirgun/owncode/internal/llm/agent"
 	"github.com/muratmirgun/owncode/internal/logging"
 	"github.com/muratmirgun/owncode/internal/message"
+	"github.com/muratmirgun/owncode/internal/pubsub"
 	"github.com/muratmirgun/owncode/internal/session"
 	"github.com/muratmirgun/owncode/internal/tui/components/dialog"
 	"github.com/muratmirgun/owncode/internal/tui/layout"
@@ -25,13 +28,18 @@ import (
 )
 
 type editorCmp struct {
-	width       int
-	height      int
-	app         *app.App
-	session     session.Session
-	textarea    textarea.Model
-	attachments []message.Attachment
-	deleteMode  bool
+	home              bool
+	width             int
+	height            int
+	app               *app.App
+	session           session.Session
+	textarea          textarea.Model
+	attachments       []message.Attachment
+	deleteMode        bool
+	slashIndex        int
+	slashDismissed    bool
+	throughput        map[string]*throughputStats
+	throughputTicking bool
 }
 
 type EditorKeyMaps struct {
@@ -152,6 +160,9 @@ func (m *editorCmp) send() tea.Cmd {
 func (m *editorCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
+	case HomeEditorMsg:
+		m.home = bool(msg)
+		return m, nil
 	case dialog.ThemeChangedMsg:
 		m.textarea = CreateTextArea(&m.textarea)
 	case dialog.CompletionSelectedMsg:
@@ -160,6 +171,42 @@ func (m *editorCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.textarea.SetValue(modifiedValue)
 		return m, nil
+	case throughputTickMsg:
+		active := false
+		for _, stats := range m.throughput {
+			if stats.messageID != "" && !stats.finished {
+				stats.refresh(time.Time(msg))
+				active = true
+			}
+		}
+		m.throughputTicking = active
+		if active {
+			return m, throughputTick()
+		}
+		return m, nil
+	case pubsub.Event[message.Message]:
+		if msg.Payload.Role == message.Assistant && msg.Type != pubsub.DeletedEvent {
+			if m.throughput == nil {
+				m.throughput = make(map[string]*throughputStats)
+			}
+			stats := m.throughput[msg.Payload.SessionID]
+			if stats == nil {
+				stats = &throughputStats{}
+				m.throughput[msg.Payload.SessionID] = stats
+			}
+			stats.observe(msg.Payload, time.Now())
+			if stats.messageID != "" && !stats.finished && !m.throughputTicking {
+				m.throughputTicking = true
+				return m, throughputTick()
+			}
+		}
+		return m, nil
+	case SessionClearedMsg:
+		m.session = session.Session{}
+		m.textarea.Reset()
+		m.attachments = nil
+		m.slashDismissed = false
+		return m, m.slashSuggestions()
 	case SessionSelectedMsg:
 		if msg.ID != m.session.ID {
 			m.session = msg
@@ -172,6 +219,9 @@ func (m *editorCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.attachments = append(m.attachments, msg.Attachment)
 	case tea.KeyMsg:
+		if handled, cmd := m.handleSlash(msg); handled {
+			return m, cmd
+		}
 		if key.Matches(msg, DeleteKeyMaps.AttachmentDeleteMode) {
 			m.deleteMode = true
 			return m, nil
@@ -221,24 +271,42 @@ func (m *editorCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	}
+	before := m.textarea.Value()
 	m.textarea, cmd = m.textarea.Update(msg)
+	if before != m.textarea.Value() {
+		m.slashIndex = 0
+		m.slashDismissed = false
+		return m, tea.Batch(cmd, m.slashSuggestions())
+	}
 	return m, cmd
 }
 
 func (m *editorCmp) View() string {
+	bg := theme.CurrentTheme().BackgroundSecondary()
+	view := styles.BaseStyle().Background(bg).Width(m.width).Height(m.height).Render(m.editorView())
+	return styles.Surface(view, bg)
+}
+
+func (m *editorCmp) editorView() string {
 	t := theme.CurrentTheme()
 
 	// Style the prompt with theme colors
 	style := lipgloss.NewStyle().
 		Padding(0, 0, 0, 1).
 		Bold(true).
-		Foreground(t.Primary())
+		Foreground(t.Primary()).Background(t.BackgroundSecondary())
 
-	if len(m.attachments) == 0 {
-		return lipgloss.JoinHorizontal(lipgloss.Top, style.Render(">"), m.textarea.View())
+	if m.home && len(m.attachments) == 0 {
+		m.textarea.SetHeight(max(1, m.height-2))
+		return lipgloss.JoinVertical(lipgloss.Left, "", m.textarea.View(), m.throughputView())
 	}
-	m.textarea.SetHeight(m.height - 1)
+	m.textarea.SetHeight(max(1, m.height-1))
+	if len(m.attachments) == 0 {
+		return lipgloss.JoinVertical(lipgloss.Left, m.throughputView(), lipgloss.JoinHorizontal(lipgloss.Top, style.Render(">"), m.textarea.View()))
+	}
+	m.textarea.SetHeight(max(1, m.height-2))
 	return lipgloss.JoinVertical(lipgloss.Top,
+		m.throughputView(),
 		m.attachmentsContent(),
 		lipgloss.JoinHorizontal(lipgloss.Top, style.Render(">"),
 			m.textarea.View()),
@@ -248,9 +316,8 @@ func (m *editorCmp) View() string {
 func (m *editorCmp) SetSize(width, height int) tea.Cmd {
 	m.width = width
 	m.height = height
-	m.textarea.SetWidth(width - 3) // account for the prompt and padding right
-	m.textarea.SetHeight(height)
-	m.textarea.SetWidth(width)
+	m.textarea.SetWidth(max(1, width-2))
+	m.textarea.SetHeight(max(1, height-1))
 	return nil
 }
 
@@ -290,23 +357,28 @@ func (m *editorCmp) BindingKeys() []key.Binding {
 
 func CreateTextArea(existing *textarea.Model) textarea.Model {
 	t := theme.CurrentTheme()
-	bgColor := t.Background()
+	bgColor := t.BackgroundSecondary()
 	textColor := t.Text()
-	textMutedColor := t.TextMuted()
 
 	ta := textarea.New()
 	ta.BlurredStyle.Base = styles.BaseStyle().Background(bgColor).Foreground(textColor)
 	ta.BlurredStyle.CursorLine = styles.BaseStyle().Background(bgColor)
-	ta.BlurredStyle.Placeholder = styles.BaseStyle().Background(bgColor).Foreground(textMutedColor)
+	ta.BlurredStyle.Placeholder = styles.BaseStyle().Background(bgColor).Foreground(textColor)
 	ta.BlurredStyle.Text = styles.BaseStyle().Background(bgColor).Foreground(textColor)
 	ta.FocusedStyle.Base = styles.BaseStyle().Background(bgColor).Foreground(textColor)
 	ta.FocusedStyle.CursorLine = styles.BaseStyle().Background(bgColor)
-	ta.FocusedStyle.Placeholder = styles.BaseStyle().Background(bgColor).Foreground(textMutedColor)
+	ta.FocusedStyle.Placeholder = styles.BaseStyle().Background(bgColor).Foreground(textColor)
 	ta.FocusedStyle.Text = styles.BaseStyle().Background(bgColor).Foreground(textColor)
 
+	ta.FocusedStyle.EndOfBuffer = styles.BaseStyle().Background(bgColor)
+	ta.BlurredStyle.EndOfBuffer = styles.BaseStyle().Background(bgColor)
+	ta.FocusedStyle.Prompt = styles.BaseStyle().Background(bgColor)
+	ta.BlurredStyle.Prompt = styles.BaseStyle().Background(bgColor)
+	ta.Cursor.Style = styles.BaseStyle().Background(bgColor).Foreground(textColor)
 	ta.Prompt = " "
 	ta.ShowLineNumbers = false
 	ta.CharLimit = -1
+	ta.Placeholder = "Message… (/ commands, @ files)"
 
 	if existing != nil {
 		ta.SetValue(existing.Value())
@@ -324,4 +396,18 @@ func NewEditorCmp(app *app.App) tea.Model {
 		app:      app,
 		textarea: ta,
 	}
+}
+
+// PreferredHeight grows with explicit and wrapped lines, then scrolls at eight.
+func (m *editorCmp) PreferredHeight(width int) int {
+	textWidth := max(1, width-3)
+	lines := strings.Count(ansi.Wrap(m.textarea.Value(), textWidth, ""), "\n") + 1
+	extra := 1 // Throughput row.
+	if m.home {
+		extra++
+	}
+	if len(m.attachments) > 0 {
+		extra++
+	}
+	return min(8, max(1, lines)) + extra
 }
