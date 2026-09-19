@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/diff"
@@ -16,6 +16,7 @@ import (
 	"github.com/muratmirgun/owncode/internal/session"
 	"github.com/muratmirgun/owncode/internal/tui/styles"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
+	"github.com/muratmirgun/owncode/internal/tui/util"
 )
 
 type sidebarCmp struct {
@@ -51,7 +52,7 @@ func (m *sidebarCmp) Init() tea.Cmd {
 	return nil
 }
 
-func (m *sidebarCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *sidebarCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case SessionClearedMsg:
 		m.session = session.Session{}
@@ -136,7 +137,7 @@ func (m *sidebarCmp) GetSize() (int, int) {
 	return m.width, m.height
 }
 
-func NewSidebarCmp(session session.Session, history history.Service) tea.Model {
+func NewSidebarCmp(session session.Session, history history.Service) util.Model {
 	return &sidebarCmp{
 		session: session,
 		history: history,

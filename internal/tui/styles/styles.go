@@ -1,9 +1,11 @@
 package styles
 
 import (
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muratmirgun/owncode/internal/tui/theme"
+	"image/color"
 	"strings"
+
+	"charm.land/lipgloss/v2"
+	"github.com/muratmirgun/owncode/internal/tui/theme"
 )
 
 var (
@@ -76,88 +78,88 @@ func DimBorder() lipgloss.Style {
 }
 
 // PrimaryColor returns the primary color from the current theme
-func PrimaryColor() lipgloss.AdaptiveColor {
+func PrimaryColor() theme.AdaptiveColor {
 	return theme.CurrentTheme().Primary()
 }
 
 // SecondaryColor returns the secondary color from the current theme
-func SecondaryColor() lipgloss.AdaptiveColor {
+func SecondaryColor() theme.AdaptiveColor {
 	return theme.CurrentTheme().Secondary()
 }
 
 // AccentColor returns the accent color from the current theme
-func AccentColor() lipgloss.AdaptiveColor {
+func AccentColor() theme.AdaptiveColor {
 	return theme.CurrentTheme().Accent()
 }
 
 // ErrorColor returns the error color from the current theme
-func ErrorColor() lipgloss.AdaptiveColor {
+func ErrorColor() theme.AdaptiveColor {
 	return theme.CurrentTheme().Error()
 }
 
 // WarningColor returns the warning color from the current theme
-func WarningColor() lipgloss.AdaptiveColor {
+func WarningColor() theme.AdaptiveColor {
 	return theme.CurrentTheme().Warning()
 }
 
 // SuccessColor returns the success color from the current theme
-func SuccessColor() lipgloss.AdaptiveColor {
+func SuccessColor() theme.AdaptiveColor {
 	return theme.CurrentTheme().Success()
 }
 
 // InfoColor returns the info color from the current theme
-func InfoColor() lipgloss.AdaptiveColor {
+func InfoColor() theme.AdaptiveColor {
 	return theme.CurrentTheme().Info()
 }
 
 // TextColor returns the text color from the current theme
-func TextColor() lipgloss.AdaptiveColor {
+func TextColor() theme.AdaptiveColor {
 	return theme.CurrentTheme().Text()
 }
 
 // TextMutedColor returns the muted text color from the current theme
-func TextMutedColor() lipgloss.AdaptiveColor {
+func TextMutedColor() theme.AdaptiveColor {
 	return theme.CurrentTheme().TextMuted()
 }
 
 // TextEmphasizedColor returns the emphasized text color from the current theme
-func TextEmphasizedColor() lipgloss.AdaptiveColor {
+func TextEmphasizedColor() theme.AdaptiveColor {
 	return theme.CurrentTheme().TextEmphasized()
 }
 
 // BackgroundColor returns the background color from the current theme
-func BackgroundColor() lipgloss.AdaptiveColor {
+func BackgroundColor() theme.AdaptiveColor {
 	return theme.CurrentTheme().Background()
 }
 
 // BackgroundSecondaryColor returns the secondary background color from the current theme
-func BackgroundSecondaryColor() lipgloss.AdaptiveColor {
+func BackgroundSecondaryColor() theme.AdaptiveColor {
 	return theme.CurrentTheme().BackgroundSecondary()
 }
 
 // BackgroundDarkerColor returns the darker background color from the current theme
-func BackgroundDarkerColor() lipgloss.AdaptiveColor {
+func BackgroundDarkerColor() theme.AdaptiveColor {
 	return theme.CurrentTheme().BackgroundDarker()
 }
 
 // BorderNormalColor returns the normal border color from the current theme
-func BorderNormalColor() lipgloss.AdaptiveColor {
+func BorderNormalColor() theme.AdaptiveColor {
 	return theme.CurrentTheme().BorderNormal()
 }
 
 // BorderFocusedColor returns the focused border color from the current theme
-func BorderFocusedColor() lipgloss.AdaptiveColor {
+func BorderFocusedColor() theme.AdaptiveColor {
 	return theme.CurrentTheme().BorderFocused()
 }
 
 // BorderDimColor returns the dim border color from the current theme
-func BorderDimColor() lipgloss.AdaptiveColor {
+func BorderDimColor() theme.AdaptiveColor {
 	return theme.CurrentTheme().BorderDim()
 }
 
 // Surface restores a panel background after nested styles reset their colors.
 // This also paints the unstyled padding emitted by textareas and joined views.
-func Surface(content string, background lipgloss.TerminalColor) string {
+func Surface(content string, background color.Color) string {
 	sample := lipgloss.NewStyle().Background(background).Render(" ")
 	end := strings.IndexByte(sample, 'm')
 	if !strings.HasPrefix(sample, "\x1b[") || end < 0 {

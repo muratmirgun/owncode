@@ -3,7 +3,7 @@ package chat
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/tui/styles"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
@@ -61,7 +61,7 @@ func (m *editorCmp) slashSuggestions() tea.Cmd {
 	return util.CmdHandler(SlashSuggestionsMsg{View: strings.Join(rows, "\n")})
 }
 
-func (m *editorCmp) handleSlash(msg tea.KeyMsg) (bool, tea.Cmd) {
+func (m *editorCmp) handleSlash(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 	matches := m.matchingCommands()
 	if len(matches) == 0 {
 		return false, nil

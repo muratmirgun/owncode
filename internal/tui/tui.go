@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/muratmirgun/owncode/internal/app"
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/llm/agent"
@@ -99,7 +99,7 @@ type appModel struct {
 	width, height   int
 	currentPage     page.PageID
 	previousPage    page.PageID
-	pages           map[page.PageID]tea.Model
+	pages           map[page.PageID]util.Model
 	loadedPages     map[page.PageID]bool
 	status          core.StatusCmp
 	app             *app.App
@@ -118,7 +118,7 @@ type appModel struct {
 	sessionDialog     dialog.SessionDialog
 
 	showSettings bool
-	settings     tea.Model
+	settings     util.Model
 
 	showCommandDialog bool
 	commandDialog     dialog.CommandDialog
@@ -144,7 +144,7 @@ type appModel struct {
 }
 
 func (a appModel) Init() tea.Cmd {
-	var cmds []tea.Cmd
+	cmds := []tea.Cmd{tea.RequestBackgroundColor}
 	cmd := a.pages[a.currentPage].Init()
 	a.loadedPages[a.currentPage] = true
 	cmds = append(cmds, cmd)
@@ -355,6 +355,15 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.showThemeDialog = false
 		return a, nil
 
+	case tea.BackgroundColorMsg:
+		theme.SetDark(msg.IsDark())
+		for id, model := range a.pages {
+			updated, updateCmd := model.Update(dialog.ThemeChangedMsg{})
+			a.pages[id] = updated
+			cmds = append(cmds, updateCmd)
+		}
+		return a, tea.Batch(cmds...)
+
 	case dialog.ThemeChangedMsg:
 		a.pages[a.currentPage], cmd = a.pages[a.currentPage].Update(msg)
 		a.showThemeDialog = false
@@ -430,7 +439,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.showSettings = true
 
 		case "sessions":
-			return a, util.CmdHandler(tea.KeyMsg{Type: tea.KeyCtrlS})
+			return a, util.CmdHandler(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 		case "compact":
 			return a, util.CmdHandler(startCompactSessionMsg{})
 		case "help":
@@ -478,7 +487,18 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
-	case tea.KeyMsg:
+	case tea.PasteMsg:
+		if a.showSettings && !a.showModelDialog && !a.showThemeDialog && !a.showPermissions && !a.showQuit {
+			a.settings, cmd = a.settings.Update(msg)
+			return a, cmd
+		}
+		if a.showMultiArgumentsDialog {
+			args, updateCmd := a.multiArgumentsDialog.Update(msg)
+			a.multiArgumentsDialog = args.(dialog.MultiArgumentsDialogCmp)
+			return a, updateCmd
+		}
+
+	case tea.KeyPressMsg:
 		if a.showSettings && !a.showModelDialog && !a.showThemeDialog && !a.showPermissions && !a.showQuit {
 			a.settings, cmd = a.settings.Update(msg)
 			return a, cmd
@@ -622,7 +642,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.filepicker = f.(dialog.FilepickerCmp)
 		cmds = append(cmds, filepickerCmd)
 		// Only block key messages send all other messages down
-		if _, ok := msg.(tea.KeyMsg); ok {
+		if isInputMessage(msg) {
 			return a, tea.Batch(cmds...)
 		}
 	}
@@ -632,7 +652,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.quit = q.(dialog.QuitDialog)
 		cmds = append(cmds, quitCmd)
 		// Only block key messages send all other messages down
-		if _, ok := msg.(tea.KeyMsg); ok {
+		if isInputMessage(msg) {
 			return a, tea.Batch(cmds...)
 		}
 	}
@@ -641,7 +661,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.permissions = d.(dialog.PermissionDialogCmp)
 		cmds = append(cmds, permissionsCmd, a.syncPermissionPanel())
 		// Only block key messages send all other messages down
-		if _, ok := msg.(tea.KeyMsg); ok {
+		if isInputMessage(msg) {
 			return a, tea.Batch(cmds...)
 		}
 	}
@@ -651,7 +671,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.sessionDialog = d.(dialog.SessionDialog)
 		cmds = append(cmds, sessionCmd)
 		// Only block key messages send all other messages down
-		if _, ok := msg.(tea.KeyMsg); ok {
+		if isInputMessage(msg) {
 			return a, tea.Batch(cmds...)
 		}
 	}
@@ -661,7 +681,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.commandDialog = d.(dialog.CommandDialog)
 		cmds = append(cmds, commandCmd)
 		// Only block key messages send all other messages down
-		if _, ok := msg.(tea.KeyMsg); ok {
+		if isInputMessage(msg) {
 			return a, tea.Batch(cmds...)
 		}
 	}
@@ -671,7 +691,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.modelDialog = d.(dialog.ModelDialog)
 		cmds = append(cmds, modelCmd)
 		// Only block key messages send all other messages down
-		if _, ok := msg.(tea.KeyMsg); ok {
+		if isInputMessage(msg) {
 			return a, tea.Batch(cmds...)
 		}
 	}
@@ -681,7 +701,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.initDialog = d.(dialog.InitDialogCmp)
 		cmds = append(cmds, initCmd)
 		// Only block key messages send all other messages down
-		if _, ok := msg.(tea.KeyMsg); ok {
+		if isInputMessage(msg) {
 			return a, tea.Batch(cmds...)
 		}
 	}
@@ -691,7 +711,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.themeDialog = d.(dialog.ThemeDialog)
 		cmds = append(cmds, themeCmd)
 		// Only block key messages send all other messages down
-		if _, ok := msg.(tea.KeyMsg); ok {
+		if isInputMessage(msg) {
 			return a, tea.Batch(cmds...)
 		}
 	}
@@ -750,7 +770,7 @@ func (a *appModel) moveToPage(pageID page.PageID) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func (a appModel) View() string {
+func (a appModel) render() string {
 	components := []string{
 		a.pages[a.currentPage].View(),
 	}
@@ -955,7 +975,7 @@ func New(app *app.App) tea.Model {
 		themeDialog:   dialog.NewThemeDialogCmp(),
 		app:           app,
 		commands:      []dialog.Command{},
-		pages: map[page.PageID]tea.Model{
+		pages: map[page.PageID]util.Model{
 			page.ChatPage: page.NewChatPage(app),
 			page.LogsPage: page.NewLogsPage(),
 		},
@@ -1003,4 +1023,22 @@ If there are Cursor rules (in .cursor/rules/ or .cursorrules) or Copilot rules (
 	}
 
 	return model
+}
+
+func (a appModel) View() tea.View {
+	view := tea.NewView(a.render())
+	view.AltScreen = true
+	view.BackgroundColor = theme.CurrentTheme().Background()
+	view.ForegroundColor = theme.CurrentTheme().Text()
+	return view
+}
+
+// isInputMessage keeps keyboard and paste input inside the active dialog.
+func isInputMessage(msg tea.Msg) bool {
+	switch msg.(type) {
+	case tea.KeyPressMsg, tea.KeyReleaseMsg, tea.PasteMsg:
+		return true
+	default:
+		return false
+	}
 }

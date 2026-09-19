@@ -28,7 +28,7 @@ See the [first-run report](docs/first-run.md) for checks, launch results, and in
 
 ## First run
 
-Install Go 1.24 or later, then build from source:
+Install Go 1.27.1 or later, then build from source:
 
 ```bash
 git clone https://github.com/muratmirgun/owncode.git
@@ -665,7 +665,7 @@ You can also configure a self-hosted model in the configuration file under the `
 
 ### Prerequisites
 
-- Go 1.24.0 or higher
+- Go 1.27.1 or higher
 
 ### Building from Source
 

@@ -3,9 +3,9 @@ package dialog
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/muratmirgun/owncode/internal/tui/layout"
 	"github.com/muratmirgun/owncode/internal/tui/styles"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
@@ -17,7 +17,7 @@ const question = "Are you sure you want to quit?"
 type CloseQuitMsg struct{}
 
 type QuitDialog interface {
-	tea.Model
+	util.Model
 	layout.Bindings
 }
 
@@ -39,7 +39,7 @@ var helpKeys = helpMapping{
 		key.WithHelp("←/→", "switch options"),
 	),
 	EnterSpace: key.NewBinding(
-		key.WithKeys("enter", " "),
+		key.WithKeys("enter", "space"),
 		key.WithHelp("enter/space", "confirm"),
 	),
 	Yes: key.NewBinding(
@@ -60,9 +60,9 @@ func (q *quitDialogCmp) Init() tea.Cmd {
 	return nil
 }
 
-func (q *quitDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (q *quitDialogCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, helpKeys.LeftRight) || key.Matches(msg, helpKeys.Tab):
 			q.selectedNo = !q.selectedNo
@@ -100,7 +100,7 @@ func (q *quitDialogCmp) View() string {
 	yesButton := yesStyle.Padding(0, 1).Render("Yes")
 	noButton := noStyle.Padding(0, 1).Render("No")
 
-	buttons := lipgloss.JoinHorizontal(lipgloss.Left, yesButton, spacerStyle.Render("  "), noButton)
+	buttons := lipgloss.JoinHorizontal(lipgloss.Top, yesButton, spacerStyle.Render("  "), noButton)
 
 	width := lipgloss.Width(question)
 	remainingWidth := width - lipgloss.Width(buttons)
@@ -117,12 +117,11 @@ func (q *quitDialogCmp) View() string {
 		),
 	)
 
-	return baseStyle.Padding(1, 2).
+	frame := baseStyle.Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderBackground(t.Background()).
-		BorderForeground(t.TextMuted()).
-		Width(lipgloss.Width(content) + 4).
-		Render(content)
+		BorderForeground(t.TextMuted())
+	return frame.Width(lipgloss.Width(content) + frame.GetHorizontalFrameSize()).Render(content)
 }
 
 func (q *quitDialogCmp) BindingKeys() []key.Binding {

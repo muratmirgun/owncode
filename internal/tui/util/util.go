@@ -3,7 +3,7 @@ package util
 import (
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func CmdHandler(msg tea.Msg) tea.Cmd {
@@ -55,4 +55,12 @@ func Clamp(v, low, high int) int {
 		low, high = high, low
 	}
 	return min(high, max(low, v))
+}
+
+// Model is a composable UI component. Only the application root owns a tea.View;
+// child components render strings like the Bubbles v2 components.
+type Model interface {
+	Init() tea.Cmd
+	Update(tea.Msg) (Model, tea.Cmd)
+	View() string
 }

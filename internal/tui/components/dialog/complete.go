@@ -1,10 +1,10 @@
 package dialog
 
 import (
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textarea"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/muratmirgun/owncode/internal/logging"
 	utilComponents "github.com/muratmirgun/owncode/internal/tui/components/util"
 	"github.com/muratmirgun/owncode/internal/tui/layout"
@@ -77,7 +77,7 @@ type CompletionDialogCompleteItemMsg struct {
 type CompletionDialogCloseMsg struct{}
 
 type CompletionDialog interface {
-	tea.Model
+	util.Model
 	layout.Bindings
 	SetWidth(width int)
 }
@@ -133,10 +133,10 @@ func (c *completionDialogCmp) close() tea.Cmd {
 	return util.CmdHandler(CompletionDialogCloseMsg{})
 }
 
-func (c *completionDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (c *completionDialogCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if c.pseudoSearchTextArea.Focused() {
 
 			if !key.Matches(msg, completionDialogKeys.Complete) {

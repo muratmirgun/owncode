@@ -1,15 +1,16 @@
 package layout
 
 import (
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/muratmirgun/owncode/internal/tui/styles"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
+	"github.com/muratmirgun/owncode/internal/tui/util"
 )
 
 type Container interface {
-	tea.Model
+	util.Model
 	Sizeable
 	Bindings
 }
@@ -17,7 +18,7 @@ type container struct {
 	width  int
 	height int
 
-	content tea.Model
+	content util.Model
 
 	// Style options
 	paddingTop    int
@@ -37,7 +38,7 @@ func (c *container) Init() tea.Cmd {
 	return c.content.Init()
 }
 
-func (c *container) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (c *container) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	u, cmd := c.content.Update(msg)
 	c.content = u
 	return c, cmd
@@ -129,7 +130,7 @@ func (c *container) BindingKeys() []key.Binding {
 
 type ContainerOption func(*container)
 
-func NewContainer(content tea.Model, options ...ContainerOption) Container {
+func NewContainer(content util.Model, options ...ContainerOption) Container {
 
 	c := &container{
 		content:     content,

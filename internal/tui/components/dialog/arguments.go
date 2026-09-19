@@ -2,11 +2,11 @@ package dialog
 
 import (
 	"fmt"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/muratmirgun/owncode/internal/tui/styles"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
 	"github.com/muratmirgun/owncode/internal/tui/util"
@@ -70,17 +70,21 @@ func NewMultiArgumentsDialogCmp(commandID, content string, argNames []string) Mu
 	for i, name := range argNames {
 		ti := textinput.New()
 		ti.Placeholder = fmt.Sprintf("Enter value for %s...", name)
-		ti.Width = 40
+		ti.SetWidth(40)
 		ti.Prompt = ""
-		ti.PlaceholderStyle = ti.PlaceholderStyle.Background(t.Background())
-		ti.PromptStyle = ti.PromptStyle.Background(t.Background())
-		ti.TextStyle = ti.TextStyle.Background(t.Background())
+		ti.SetVirtualCursor(true)
+		inputStyles := ti.Styles()
+		inputStyles.Focused.Placeholder = inputStyles.Focused.Placeholder.Background(t.Background())
+		inputStyles.Blurred.Placeholder = inputStyles.Focused.Placeholder
+		inputStyles.Focused.Prompt = inputStyles.Focused.Prompt.Background(t.Background()).Foreground(t.Primary())
+		inputStyles.Focused.Text = inputStyles.Focused.Text.Background(t.Background()).Foreground(t.Primary())
+		inputStyles.Blurred.Prompt = inputStyles.Focused.Prompt.Foreground(t.Text())
+		inputStyles.Blurred.Text = inputStyles.Focused.Text.Foreground(t.Text())
+		ti.SetStyles(inputStyles)
 
 		// Only focus the first input initially
 		if i == 0 {
 			ti.Focus()
-			ti.PromptStyle = ti.PromptStyle.Foreground(t.Primary())
-			ti.TextStyle = ti.TextStyle.Foreground(t.Primary())
 		} else {
 			ti.Blur()
 		}
@@ -98,7 +102,7 @@ func NewMultiArgumentsDialogCmp(commandID, content string, argNames []string) Mu
 	}
 }
 
-// Init implements tea.Model.
+// Init implements util.Model.
 func (m MultiArgumentsDialogCmp) Init() tea.Cmd {
 	// Make sure only the first input is focused
 	for i := range m.inputs {
@@ -112,13 +116,12 @@ func (m MultiArgumentsDialogCmp) Init() tea.Cmd {
 	return textinput.Blink
 }
 
-// Update implements tea.Model.
-func (m MultiArgumentsDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+// Update implements util.Model.
+func (m MultiArgumentsDialogCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	var cmds []tea.Cmd
-	t := theme.CurrentTheme()
 
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 			return m, util.CmdHandler(CloseMultiArgumentsDialogMsg{
@@ -145,22 +148,16 @@ func (m MultiArgumentsDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.inputs[m.focusIndex].Blur()
 			m.focusIndex++
 			m.inputs[m.focusIndex].Focus()
-			m.inputs[m.focusIndex].PromptStyle = m.inputs[m.focusIndex].PromptStyle.Foreground(t.Primary())
-			m.inputs[m.focusIndex].TextStyle = m.inputs[m.focusIndex].TextStyle.Foreground(t.Primary())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
 			// Move to the next input
 			m.inputs[m.focusIndex].Blur()
 			m.focusIndex = (m.focusIndex + 1) % len(m.inputs)
 			m.inputs[m.focusIndex].Focus()
-			m.inputs[m.focusIndex].PromptStyle = m.inputs[m.focusIndex].PromptStyle.Foreground(t.Primary())
-			m.inputs[m.focusIndex].TextStyle = m.inputs[m.focusIndex].TextStyle.Foreground(t.Primary())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab"))):
 			// Move to the previous input
 			m.inputs[m.focusIndex].Blur()
 			m.focusIndex = (m.focusIndex - 1 + len(m.inputs)) % len(m.inputs)
 			m.inputs[m.focusIndex].Focus()
-			m.inputs[m.focusIndex].PromptStyle = m.inputs[m.focusIndex].PromptStyle.Foreground(t.Primary())
-			m.inputs[m.focusIndex].TextStyle = m.inputs[m.focusIndex].TextStyle.Foreground(t.Primary())
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -175,7 +172,7 @@ func (m MultiArgumentsDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// View implements tea.Model.
+// View implements util.Model.
 func (m MultiArgumentsDialogCmp) View() string {
 	t := theme.CurrentTheme()
 	baseStyle := styles.BaseStyle()
