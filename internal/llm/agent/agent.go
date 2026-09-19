@@ -812,6 +812,7 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 		opts = append(
 			opts,
 			provider.WithAnthropicOptions(
+				provider.WithAnthropicReasoning(agentConfig.ReasoningEffort),
 				provider.WithAnthropicShouldThinkFn(provider.DefaultShouldThinkFn),
 			),
 		)
@@ -821,10 +822,10 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 		providerName = models.ProviderOpenAI
 		opts = append(opts, provider.WithOpenAIOptions(provider.WithChatGPT(), provider.WithReasoningEffort(agentConfig.ReasoningEffort)))
 	} else if model.Custom && model.Provider == models.ProviderAnthropic {
-		opts = append(opts, provider.WithAnthropicOptions(provider.WithAnthropicBaseURL(providerCfg.BaseURL), provider.WithAnthropicShouldThinkFn(provider.DefaultShouldThinkFn)))
+		opts = append(opts, provider.WithAnthropicOptions(provider.WithAnthropicBaseURL(providerCfg.BaseURL), provider.WithAnthropicShouldThinkFn(provider.DefaultShouldThinkFn), provider.WithAnthropicReasoning(agentConfig.ReasoningEffort)))
 	} else if model.Custom {
 		providerName = models.ProviderOpenAI
-		opts = append(opts, provider.WithOpenAIOptions(provider.WithOpenAIBaseURL(providerCfg.BaseURL)))
+		opts = append(opts, provider.WithOpenAIOptions(provider.WithOpenAIBaseURL(providerCfg.BaseURL), provider.WithReasoningEffort(agentConfig.ReasoningEffort)))
 	}
 	agentProvider, err := provider.NewProvider(
 		providerName,

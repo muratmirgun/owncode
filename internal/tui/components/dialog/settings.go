@@ -56,6 +56,7 @@ func (s *settingsCmp) rows() []settingRow {
 		}
 		rows = []settingRow{
 			{"Selection", "Chat model", name, "Select a configured model for the coding agent.", "models"},
+			{"Generation", "Reasoning", reasoningLabel(model, agent.ReasoningEffort), "Enter or Alt+R cycles the supported levels. The change applies to new requests.", "reasoning"},
 			{"Limits", "Output limit", fmt.Sprintf("%d tokens", agent.MaxTokens), "Configured maximum output per response. Edit the config to change this value.", ""},
 			{"Limits", "Context window", fmt.Sprintf("%d tokens", model.ContextWindow), "Context capacity declared by the selected model. Read-only.", ""},
 		}
@@ -143,6 +144,9 @@ func (s *settingsCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 		s.query += strings.Join(strings.Fields(msg.Content), " ")
 		s.selected = 0
 	case tea.KeyPressMsg:
+		if msg.String() == "alt+r" {
+			return s, util.CmdHandler(SettingsActionMsg("reasoning"))
+		}
 		rows := s.rows()
 		switch msg.String() {
 		case "esc":
@@ -186,6 +190,13 @@ func (s *settingsCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 		}
 	}
 	return s, nil
+}
+
+func reasoningLabel(model models.Model, saved string) string {
+	if level := model.ReasoningLevel(saved); level != "" {
+		return level
+	}
+	return "Not available"
 }
 
 func (s *settingsCmp) View() string {

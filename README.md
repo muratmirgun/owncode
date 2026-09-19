@@ -75,6 +75,12 @@ This Go application does not load npm provider plugins.
 
 OwnCode uses `.owncode.json`, the `.owncode/` data directory, and `owncode.db`.
 It uses the `OWNCODE_` environment prefix and the `owncode` theme name.
+Use **Settings → Model → Reasoning** to select a supported reasoning level.
+Press **Alt+R** in chat to cycle levels quickly. The status line shows the active level.
+The choice persists and applies to the coding agent's next request. Wait for an active response before changing it.
+ChatGPT levels come from its model catalog. Reconnect once if the account was added before reasoning support.
+Compatible thinking models can expose on/off. Claude models with declared thinking support expose auto/off/on.
+
 It automatically reads `AGENTS.md` from ancestor directories through the working directory.
 Deeper instructions take precedence within their directory. `agents.md` is a fallback when `AGENTS.md` is absent.
 This works without a `contextPaths` entry, including when that setting is customized.
@@ -711,3 +717,13 @@ Contributions are welcome! Here's how you can contribute:
 5. Open a Pull Request
 
 Please make sure to update tests as appropriate and follow the existing code style.
+
+The model picker (`ctrl+o` or `/models`) searches all configured providers.
+Use the arrow keys to select a model, then press Enter. Press `ctrl+f` to toggle
+favorites or `ctrl+a` to connect a provider. Favorites and recent selections
+persist in `owncode/model-preferences.json` under your user configuration directory.
+
+Function keys also work without Control: `F2` opens models, `F3` opens sessions,
+and `F4` cycles reasoning. In the model picker, `F5` connects a provider and
+`F6` toggles a favorite. On Mac keyboards that use media keys, hold `Fn` with
+the function key. `/models` and `/sessions` remain available as typed commands.

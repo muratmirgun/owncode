@@ -584,45 +584,9 @@ func validateAgent(cfg *Config, name AgentName, agent Agent) error {
 		cfg.Agents[name] = updatedAgent
 	}
 
-	// Validate reasoning effort for models that support reasoning
-	if model.CanReason && provider == models.ProviderOpenAI || provider == models.ProviderLocal {
-		if agent.ReasoningEffort == "" {
-			// Set default reasoning effort for models that support it
-			logging.Info("setting default reasoning effort for model that supports reasoning",
-				"agent", name,
-				"model", agent.Model)
-
-			// Update the agent with default reasoning effort
-			updatedAgent := cfg.Agents[name]
-			updatedAgent.ReasoningEffort = "medium"
-			cfg.Agents[name] = updatedAgent
-		} else {
-			// Check if reasoning effort is valid (low, medium, high)
-			effort := strings.ToLower(agent.ReasoningEffort)
-			if effort != "low" && effort != "medium" && effort != "high" {
-				logging.Warn("invalid reasoning effort, setting to medium",
-					"agent", name,
-					"model", agent.Model,
-					"reasoning_effort", agent.ReasoningEffort)
-
-				// Update the agent with valid reasoning effort
-				updatedAgent := cfg.Agents[name]
-				updatedAgent.ReasoningEffort = "medium"
-				cfg.Agents[name] = updatedAgent
-			}
-		}
-	} else if !model.CanReason && agent.ReasoningEffort != "" {
-		// Model doesn't support reasoning but reasoning effort is set
-		logging.Warn("model doesn't support reasoning but reasoning effort is set, ignoring",
-			"agent", name,
-			"model", agent.Model,
-			"reasoning_effort", agent.ReasoningEffort)
-
-		// Update the agent to remove reasoning effort
-		updatedAgent := cfg.Agents[name]
-		updatedAgent.ReasoningEffort = ""
-		cfg.Agents[name] = updatedAgent
-	}
+	updatedAgent := cfg.Agents[name]
+	updatedAgent.ReasoningEffort = model.ReasoningLevel(agent.ReasoningEffort)
+	cfg.Agents[name] = updatedAgent
 
 	return nil
 }
@@ -927,6 +891,7 @@ func UpdateAgentModel(agentName AgentName, modelID models.ModelID) error {
 		cfg.Agents[agentName] = existingAgentCfg
 		return fmt.Errorf("failed to update agent model: %w", err)
 	}
+	newAgentCfg = cfg.Agents[agentName]
 
 	return updateCfgFile(func(config *Config) {
 		if config.Agents == nil {

@@ -113,8 +113,9 @@ func TestPrivateStoreAndHostRestriction(t *testing.T) {
 func TestDiscoverFiltersChatGPTAndPaginatesClaude(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Host == "chatgpt.com" {
+			require.Equal(t, "999.0.0", r.URL.Query().Get("client_version"))
 			require.Equal(t, "Bearer access", r.Header.Get("Authorization"))
-			return response(`{"models":[{"slug":"hidden","visibility":"hide"},{"slug":"test-codex","display_name":"Test Codex","visibility":"list","context_window":262144}]}`, 200), nil
+			return response(`{"models":[{"slug":"hidden","visibility":"hide"},{"slug":"test-codex","display_name":"Test Codex","visibility":"list","context_window":262144,"default_reasoning_level":"high","supported_reasoning_levels":[{"effort":"low"},{"effort":"high"},{"effort":"xhigh"}]}]}`, 200), nil
 		}
 		require.Equal(t, "key", r.Header.Get("x-api-key"))
 		if r.URL.Query().Get("after_id") == "first" {
@@ -126,10 +127,21 @@ func TestDiscoverFiltersChatGPTAndPaginatesClaude(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, models, 1)
 	require.Equal(t, int64(262144), models[0].Context)
+	require.Equal(t, []string{"low", "high", "xhigh"}, models[0].ReasoningLevels)
+	require.Equal(t, "high", models[0].DefaultReasoning)
 	models, err = discover(context.Background(), client, Claude, Connection{Key: "key"})
 	require.NoError(t, err)
 	require.Len(t, models, 2)
 	require.Equal(t, "second", models[1].ID)
+}
+
+func TestDiscoverDoesNotInventModelsForEmptyOrHiddenCatalog(t *testing.T) {
+	for _, body := range []string{`{"models":[]}`, `{"models":[{"slug":"hidden","visibility":"hide"}]}`} {
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return response(body, 200), nil })}
+		catalog, err := discover(context.Background(), client, ChatGPT, Connection{Token: &Token{Access: "fake"}})
+		require.ErrorContains(t, err, "none were selectable")
+		require.Empty(t, catalog)
+	}
 }
 
 func TestConcurrentRefreshSavesOnceAndKeepsAccount(t *testing.T) {

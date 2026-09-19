@@ -45,4 +45,22 @@ func TestConnectionRegistrationAndSelection(t *testing.T) {
 	require.NoError(t, loadConnections(loaded))
 	require.Equal(t, auth.ChatGPT, loaded.Providers[auth.ChatGPT].Auth)
 	require.Equal(t, "Test Model", loaded.Providers[auth.ChatGPT].Models["model"].Name)
+	m := models.SupportedModels["chatgpt/model"]
+	m.ReasoningLevels = []string{"low", "medium", "high", "xhigh"}
+	m.DefaultReasoning = "medium"
+	models.SupportedModels[m.ID] = m
+	level, err := CycleReasoning()
+	require.NoError(t, err)
+	require.Equal(t, "high", level)
+	level, err = CycleReasoning()
+	require.NoError(t, err)
+	require.Equal(t, "xhigh", level)
+	require.NoError(t, validateAgent(cfg, AgentCoder, cfg.Agents[AgentCoder]))
+	require.Equal(t, "xhigh", cfg.Agents[AgentCoder].ReasoningEffort)
+	data, err = os.ReadFile(path)
+	require.NoError(t, err)
+	var persisted Config
+	require.NoError(t, json.Unmarshal(data, &persisted))
+	require.Equal(t, "xhigh", persisted.Agents[AgentCoder].ReasoningEffort)
+	require.Equal(t, "", persisted.Agents[AgentTitle].ReasoningEffort)
 }

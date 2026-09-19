@@ -18,7 +18,6 @@ import (
 	"github.com/muratmirgun/owncode/internal/message"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
-	"github.com/openai/openai-go/shared"
 )
 
 type openaiOptions struct {
@@ -40,9 +39,7 @@ type openaiClient struct {
 type OpenAIClient ProviderClient
 
 func newOpenAIClient(opts providerClientOptions) OpenAIClient {
-	openaiOpts := openaiOptions{
-		reasoningEffort: "medium",
-	}
+	openaiOpts := openaiOptions{}
 	for _, o := range opts.openaiOptions {
 		o(&openaiOpts)
 	}
@@ -184,22 +181,26 @@ func (o *openaiClient) preparedParams(messages []openai.ChatCompletionMessagePar
 
 	if o.providerOptions.model.CanReason && !o.providerOptions.model.Custom {
 		params.MaxCompletionTokens = openai.Int(o.providerOptions.maxTokens)
-		switch o.options.reasoningEffort {
-		case "low":
-			params.ReasoningEffort = shared.ReasoningEffortLow
-		case "medium":
-			params.ReasoningEffort = shared.ReasoningEffortMedium
-		case "high":
-			params.ReasoningEffort = shared.ReasoningEffortHigh
-		default:
-			params.ReasoningEffort = shared.ReasoningEffortMedium
-		}
 	} else {
 		params.MaxTokens = openai.Int(o.providerOptions.maxTokens)
 	}
 
 	extra := maps.Clone(o.providerOptions.model.Options)
+	if extra == nil {
+		extra = map[string]any{}
+	}
 	delete(extra, "native_compaction")
+	if effort := o.providerOptions.model.ReasoningLevel(o.options.reasoningEffort); effort != "" {
+		if effort == "on" || effort == "off" {
+			if kwargs, ok := extra["chat_template_kwargs"].(map[string]any); ok {
+				kwargs = maps.Clone(kwargs)
+				kwargs["enable_thinking"] = effort == "on"
+				extra["chat_template_kwargs"] = kwargs
+			}
+		} else {
+			extra["reasoning_effort"] = effort
+		}
+	}
 	params.WithExtraFields(extra)
 	return params
 }
@@ -476,13 +477,6 @@ func WithOpenAIDisableCache() OpenAIOption {
 
 func WithReasoningEffort(effort string) OpenAIOption {
 	return func(options *openaiOptions) {
-		defaultReasoningEffort := "medium"
-		switch effort {
-		case "low", "medium", "high":
-			defaultReasoningEffort = effort
-		default:
-			logging.Warn("Invalid reasoning effort, using default: medium")
-		}
-		options.reasoningEffort = defaultReasoningEffort
+		options.reasoningEffort = effort
 	}
 }

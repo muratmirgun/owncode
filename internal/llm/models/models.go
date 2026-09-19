@@ -19,6 +19,8 @@ type Model struct {
 	ContextWindow       int64          `json:"context_window"`
 	DefaultMaxTokens    int64          `json:"default_max_tokens"`
 	CanReason           bool           `json:"can_reason"`
+	ReasoningLevels     []string       `json:"reasoning_levels,omitempty"`
+	DefaultReasoning    string         `json:"default_reasoning,omitempty"`
 	SupportsAttachments bool           `json:"supports_attachments"`
 	Custom              bool           `json:"custom,omitempty"`
 	ReasoningField      string         `json:"reasoning_field,omitempty"`
