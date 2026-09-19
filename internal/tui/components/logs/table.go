@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"slices"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/table"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
 	"github.com/muratmirgun/owncode/internal/logging"
 	"github.com/muratmirgun/owncode/internal/pubsub"
 	"github.com/muratmirgun/owncode/internal/tui/layout"
@@ -16,7 +16,7 @@ import (
 )
 
 type TableComponent interface {
-	tea.Model
+	util.Model
 	layout.Sizeable
 	layout.Bindings
 }
@@ -32,7 +32,7 @@ func (i *tableCmp) Init() tea.Cmd {
 	return nil
 }
 
-func (i *tableCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (i *tableCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg.(type) {
 	case pubsub.Event[logging.LogMessage]:

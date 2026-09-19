@@ -1,12 +1,13 @@
 package utilComponents
 
 import (
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/muratmirgun/owncode/internal/tui/layout"
 	"github.com/muratmirgun/owncode/internal/tui/styles"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
+	"github.com/muratmirgun/owncode/internal/tui/util"
 )
 
 type SimpleListItem interface {
@@ -14,7 +15,7 @@ type SimpleListItem interface {
 }
 
 type SimpleList[T SimpleListItem] interface {
-	tea.Model
+	util.Model
 	layout.Bindings
 	SetMaxWidth(maxWidth int)
 	GetSelectedItem() (item T, idx int)
@@ -63,9 +64,9 @@ func (c *simpleListCmp[T]) Init() tea.Cmd {
 	return nil
 }
 
-func (c *simpleListCmp[T]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (c *simpleListCmp[T]) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, simpleListKeys.Up) || (c.useAlphaNumericKeys && key.Matches(msg, simpleListKeys.UpAlpha)):
 			if c.selectedIdx > 0 {

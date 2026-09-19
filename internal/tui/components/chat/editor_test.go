@@ -4,7 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/bubbles/textarea"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/app"
 	"github.com/muratmirgun/owncode/internal/llm/agent"
 	"github.com/muratmirgun/owncode/internal/llm/models"
@@ -52,4 +54,26 @@ func TestEditorHeightFollowsDraft(t *testing.T) {
 	}
 	editor.home = true
 	require.Equal(t, 3, editor.PreferredHeight(40))
+}
+
+func TestEditorAcceptsPasteWithoutSending(t *testing.T) {
+	editor := &editorCmp{textarea: textarea.New()}
+	editor.textarea.Focus()
+	editor.Update(tea.PasteMsg{Content: "first line\nsecond line"})
+	require.Equal(t, "first line\nsecond line", editor.textarea.Value())
+	require.Equal(t, 3, editor.PreferredHeight(60))
+}
+
+func TestGrowingEditorRevealsPastedLines(t *testing.T) {
+	editor := &editorCmp{textarea: textarea.New(), home: true, app: &app.App{CoderAgent: unconfiguredAgent{}}}
+	editor.textarea.Focus()
+	editor.SetSize(60, 3)
+	editor.View()
+	editor.Update(tea.PasteMsg{Content: "first line\nsecond line"})
+	editor.SetSize(60, editor.PreferredHeight(60))
+	view := ansi.Strip(editor.View())
+	require.Contains(t, view, "first line")
+	require.Contains(t, view, "second line")
+	require.Equal(t, 1, editor.textarea.Line())
+	require.Equal(t, len("second line"), editor.textarea.LineInfo().ColumnOffset)
 }

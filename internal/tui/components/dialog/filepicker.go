@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/muratmirgun/owncode/internal/app"
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/logging"
@@ -116,17 +116,17 @@ func (f *filepickerCmp) Init() tea.Cmd {
 	return nil
 }
 
-func (f *filepickerCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (f *filepickerCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		f.width = 60
 		f.height = 20
-		f.viewport.Width = 80
-		f.viewport.Height = 22
+		f.viewport.SetWidth(80)
+		f.viewport.SetHeight(22)
 		f.cursor = 0
 		f.getCurrentFileBelowCursor()
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if f.cwd.Focused() {
 			f.cwd, cmd = f.cwd.Update(msg)
 		}
@@ -221,7 +221,7 @@ func (f *filepickerCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return f, cmd
 }
 
-func (f *filepickerCmp) addAttachmentToMessage() (tea.Model, tea.Cmd) {
+func (f *filepickerCmp) addAttachmentToMessage() (util.Model, tea.Cmd) {
 	modeInfo := GetSelectedModel(config.Get())
 	if !modeInfo.SupportsAttachments {
 		logging.ErrorPersist(fmt.Sprintf("Model %s doesn't support attachments", modeInfo.Name))
@@ -319,7 +319,7 @@ func (f *filepickerCmp) View() string {
 		Render(f.cwd.View())
 
 	viewportstyle := lipgloss.NewStyle().
-		Width(f.viewport.Width).
+		Width(f.viewport.Width()).
 		Background(t.Background()).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(t.TextMuted()).
@@ -353,7 +353,7 @@ func (f *filepickerCmp) View() string {
 }
 
 type FilepickerCmp interface {
-	tea.Model
+	util.Model
 	ToggleFilepicker(showFilepicker bool)
 	IsCWDFocused() bool
 }
@@ -374,11 +374,11 @@ func NewFilepickerCmp(app *app.App) FilepickerCmp {
 	}
 	baseDir := DirNode{parent: nil, directory: homepath}
 	dirs := readDir(homepath, false)
-	viewport := viewport.New(0, 0)
+	viewport := viewport.New()
 	currentDirectory := textinput.New()
 	currentDirectory.CharLimit = 200
-	currentDirectory.Width = 44
-	currentDirectory.Cursor.Blink = true
+	currentDirectory.SetWidth(44)
+	currentDirectory.SetVirtualCursor(true)
 	currentDirectory.SetValue(baseDir.directory)
 	return &filepickerCmp{cwdDetails: &baseDir, dirs: dirs, cursorChain: make(stack, 0), viewport: viewport, cwd: currentDirectory, app: app}
 }
@@ -396,7 +396,7 @@ func (f *filepickerCmp) getCurrentFileBelowCursor() {
 		fullPath := f.cwdDetails.directory + "/" + dir.Name()
 
 		go func() {
-			imageString, err := image.ImagePreview(f.viewport.Width-4, fullPath)
+			imageString, err := image.ImagePreview(f.viewport.Width()-4, fullPath)
 			if err != nil {
 				logging.Error(err.Error())
 				f.viewport.SetContent("Preview unavailable")

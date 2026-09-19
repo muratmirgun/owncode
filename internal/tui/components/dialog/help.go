@@ -3,11 +3,12 @@ package dialog
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/muratmirgun/owncode/internal/tui/styles"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
+	"github.com/muratmirgun/owncode/internal/tui/util"
 )
 
 type helpCmp struct {
@@ -24,7 +25,7 @@ func (h *helpCmp) SetBindings(k []key.Binding) {
 	h.keys = k
 }
 
-func (h *helpCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (h *helpCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		h.width = 90
@@ -134,7 +135,7 @@ func (h *helpCmp) render() string {
 		pairs = append(pairs, pair)
 	}
 
-	// https://github.com/charmbracelet/lipgloss/issues/209
+	// https://charm.land/lipgloss/v2/issues/209
 	if len(pairs) > 1 {
 		prefix := pairs[:len(pairs)-1]
 		lastPair := pairs[len(pairs)-1]
@@ -144,7 +145,6 @@ func (h *helpCmp) render() string {
 			lipgloss.Left,              // x
 			lipgloss.Top,               // y
 			lastPair,                   // content
-			lipgloss.WithWhitespaceBackground(t.Background()),
 		))
 		content := baseStyle.Width(h.width).Render(
 			lipgloss.JoinHorizontal(
@@ -191,7 +191,7 @@ func (h *helpCmp) View() string {
 }
 
 type HelpCmp interface {
-	tea.Model
+	util.Model
 	SetBindings([]key.Binding)
 }
 

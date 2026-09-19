@@ -3,7 +3,7 @@ package dialog
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/muratmirgun/owncode/internal/tui/util"
 	"github.com/stretchr/testify/require"
 )
@@ -11,13 +11,13 @@ import (
 func TestEmptyModelDialog(t *testing.T) {
 	t.Parallel()
 	dialog := &modelDialogCmp{}
-	for _, key := range []tea.KeyType{tea.KeyUp, tea.KeyDown, tea.KeyEnter} {
-		_, cmd := dialog.Update(tea.KeyMsg{Type: key})
+	for _, key := range []rune{tea.KeyUp, tea.KeyDown, tea.KeyEnter} {
+		_, cmd := dialog.Update(tea.KeyPressMsg{Code: key})
 		require.NotNil(t, cmd)
 		_, ok := cmd().(util.InfoMsg)
 		require.True(t, ok)
 	}
-	_, cmd := dialog.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	_, cmd := dialog.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	require.NotNil(t, cmd)
 	_, ok := cmd().(CloseModelDialogMsg)
 	require.True(t, ok)

@@ -1,13 +1,14 @@
 package dialog
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"strings"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/muratmirgun/owncode/internal/llm/tools"
 	"github.com/muratmirgun/owncode/internal/permission"
 	"github.com/stretchr/testify/require"
-	"strings"
-	"testing"
 )
 
 func TestDockedPermissionKeepsActions(t *testing.T) {
@@ -23,7 +24,7 @@ func TestDockedPermissionKeepsActions(t *testing.T) {
 		key    string
 		action PermissionAction
 	}{{"a", PermissionAllow}, {"s", PermissionAllowForSession}, {"d", PermissionDeny}} {
-		_, cmd := p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(test.key)})
+		_, cmd := p.Update(tea.KeyPressMsg{Code: []rune(test.key)[0], Text: test.key})
 		response := cmd().(PermissionResponseMsg)
 		require.Equal(t, test.action, response.Action)
 		require.Equal(t, request, response.Permission)

@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/llm/models"
@@ -31,7 +31,7 @@ type settingsCmp struct {
 
 var settingsTabs = []string{"Appearance", "Model", "Context", "Connections"}
 
-func NewSettingsCmp() tea.Model      { return &settingsCmp{} }
+func NewSettingsCmp() util.Model     { return &settingsCmp{} }
 func (s *settingsCmp) Init() tea.Cmd { return nil }
 
 func (s *settingsCmp) rows() []settingRow {
@@ -93,12 +93,15 @@ func (s *settingsCmp) rows() []settingRow {
 	return filtered
 }
 
-func (s *settingsCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (s *settingsCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		s.width = msg.Width
 		s.height = msg.Height
-	case tea.KeyMsg:
+	case tea.PasteMsg:
+		s.query += strings.Join(strings.Fields(msg.Content), " ")
+		s.selected = 0
+	case tea.KeyPressMsg:
 		rows := s.rows()
 		switch msg.String() {
 		case "esc":
@@ -120,7 +123,7 @@ func (s *settingsCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s.selected = max(0, s.selected-1)
 		case "down":
 			s.selected = min(max(0, len(rows)-1), s.selected+1)
-		case "enter", " ":
+		case "enter", "space":
 			if len(rows) > 0 && rows[min(s.selected, len(rows)-1)].action != "" {
 				return s, util.CmdHandler(SettingsActionMsg(rows[min(s.selected, len(rows)-1)].action))
 			}
@@ -131,8 +134,8 @@ func (s *settingsCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				s.selected = 0
 			}
 		default:
-			if msg.Type == tea.KeyRunes {
-				s.query += string(msg.Runes)
+			if msg.Text != "" {
+				s.query += msg.Text
 				s.selected = 0
 			}
 		}

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textarea"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/app"
 	"github.com/muratmirgun/owncode/internal/message"
@@ -56,15 +56,15 @@ func TestSlashCommandsWithoutModel(t *testing.T) {
 	m := &editorCmp{textarea: textarea.New()}
 	m.textarea.SetValue("/set")
 	require.Equal(t, "settings", m.matchingCommands()[0].name)
-	handled, _ := m.handleSlash(tea.KeyMsg{Type: tea.KeyTab})
+	handled, _ := m.handleSlash(tea.KeyPressMsg{Code: tea.KeyTab})
 	require.True(t, handled)
 	require.Equal(t, "/settings", m.textarea.Value())
-	handled, cmd := m.handleSlash(tea.KeyMsg{Type: tea.KeyEnter})
+	handled, cmd := m.handleSlash(tea.KeyPressMsg{Code: tea.KeyEnter})
 	require.True(t, handled)
 	require.NotNil(t, cmd)
 	require.Empty(t, m.textarea.Value())
 	m.textarea.SetValue("/")
-	handled, _ = m.handleSlash(tea.KeyMsg{Type: tea.KeyEsc})
+	handled, _ = m.handleSlash(tea.KeyPressMsg{Code: tea.KeyEsc})
 	require.True(t, handled)
 	require.Empty(t, m.matchingCommands())
 	require.Equal(t, "/", m.textarea.Value())

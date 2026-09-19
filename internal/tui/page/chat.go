@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/app"
 	"github.com/muratmirgun/owncode/internal/completions"
@@ -65,7 +65,7 @@ func (p *chatPage) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (p *chatPage) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case chat.PermissionPanelMsg:
@@ -111,7 +111,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case chat.SessionSelectedMsg:
 		p.session = msg
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, keyMap.ShowCompletionDialog):
 			p.showCompletionDialog = true
@@ -136,7 +136,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, contextCmd)
 
 		// Doesn't forward event if enter key is pressed
-		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 			if keyMsg.String() == "enter" {
 				return p, tea.Batch(cmds...)
 			}
@@ -147,7 +147,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, cmd)
 	p.layout = u.(layout.SplitPaneLayout)
 	switch msg.(type) {
-	case tea.WindowSizeMsg, tea.KeyMsg, chat.SessionSelectedMsg, chat.SessionClearedMsg, dialog.AttachmentAddedMsg, dialog.CompletionSelectedMsg:
+	case tea.WindowSizeMsg, tea.KeyPressMsg, tea.PasteMsg, chat.SessionSelectedMsg, chat.SessionClearedMsg, dialog.AttachmentAddedMsg, dialog.CompletionSelectedMsg:
 		w, h := p.layout.GetSize()
 		cmds = append(cmds, p.SetSize(w, h))
 	}
@@ -295,7 +295,7 @@ func (p *chatPage) BindingKeys() []key.Binding {
 	return bindings
 }
 
-func NewChatPage(app *app.App) tea.Model {
+func NewChatPage(app *app.App) util.Model {
 	cg := completions.NewFileAndFolderContextGroup()
 	completionDialog := dialog.NewCompletionDialogCmp(cg)
 

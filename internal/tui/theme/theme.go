@@ -1,216 +1,214 @@
 package theme
 
-import (
-	"github.com/charmbracelet/lipgloss"
-)
+import ()
 
 // Theme defines the interface for all UI themes in the application.
-// All colors must be defined as lipgloss.AdaptiveColor to support
+// All colors must be defined as AdaptiveColor to support
 // both light and dark terminal backgrounds.
 type Theme interface {
 	// Base colors
-	Primary() lipgloss.AdaptiveColor
-	Secondary() lipgloss.AdaptiveColor
-	Accent() lipgloss.AdaptiveColor
+	Primary() AdaptiveColor
+	Secondary() AdaptiveColor
+	Accent() AdaptiveColor
 
 	// Status colors
-	Error() lipgloss.AdaptiveColor
-	Warning() lipgloss.AdaptiveColor
-	Success() lipgloss.AdaptiveColor
-	Info() lipgloss.AdaptiveColor
+	Error() AdaptiveColor
+	Warning() AdaptiveColor
+	Success() AdaptiveColor
+	Info() AdaptiveColor
 
 	// Text colors
-	Text() lipgloss.AdaptiveColor
-	TextMuted() lipgloss.AdaptiveColor
-	TextEmphasized() lipgloss.AdaptiveColor
+	Text() AdaptiveColor
+	TextMuted() AdaptiveColor
+	TextEmphasized() AdaptiveColor
 
 	// Background colors
-	Background() lipgloss.AdaptiveColor
-	BackgroundSecondary() lipgloss.AdaptiveColor
-	BackgroundDarker() lipgloss.AdaptiveColor
+	Background() AdaptiveColor
+	BackgroundSecondary() AdaptiveColor
+	BackgroundDarker() AdaptiveColor
 
 	// Border colors
-	BorderNormal() lipgloss.AdaptiveColor
-	BorderFocused() lipgloss.AdaptiveColor
-	BorderDim() lipgloss.AdaptiveColor
+	BorderNormal() AdaptiveColor
+	BorderFocused() AdaptiveColor
+	BorderDim() AdaptiveColor
 
 	// Diff view colors
-	DiffAdded() lipgloss.AdaptiveColor
-	DiffRemoved() lipgloss.AdaptiveColor
-	DiffContext() lipgloss.AdaptiveColor
-	DiffHunkHeader() lipgloss.AdaptiveColor
-	DiffHighlightAdded() lipgloss.AdaptiveColor
-	DiffHighlightRemoved() lipgloss.AdaptiveColor
-	DiffAddedBg() lipgloss.AdaptiveColor
-	DiffRemovedBg() lipgloss.AdaptiveColor
-	DiffContextBg() lipgloss.AdaptiveColor
-	DiffLineNumber() lipgloss.AdaptiveColor
-	DiffAddedLineNumberBg() lipgloss.AdaptiveColor
-	DiffRemovedLineNumberBg() lipgloss.AdaptiveColor
+	DiffAdded() AdaptiveColor
+	DiffRemoved() AdaptiveColor
+	DiffContext() AdaptiveColor
+	DiffHunkHeader() AdaptiveColor
+	DiffHighlightAdded() AdaptiveColor
+	DiffHighlightRemoved() AdaptiveColor
+	DiffAddedBg() AdaptiveColor
+	DiffRemovedBg() AdaptiveColor
+	DiffContextBg() AdaptiveColor
+	DiffLineNumber() AdaptiveColor
+	DiffAddedLineNumberBg() AdaptiveColor
+	DiffRemovedLineNumberBg() AdaptiveColor
 
 	// Markdown colors
-	MarkdownText() lipgloss.AdaptiveColor
-	MarkdownHeading() lipgloss.AdaptiveColor
-	MarkdownLink() lipgloss.AdaptiveColor
-	MarkdownLinkText() lipgloss.AdaptiveColor
-	MarkdownCode() lipgloss.AdaptiveColor
-	MarkdownBlockQuote() lipgloss.AdaptiveColor
-	MarkdownEmph() lipgloss.AdaptiveColor
-	MarkdownStrong() lipgloss.AdaptiveColor
-	MarkdownHorizontalRule() lipgloss.AdaptiveColor
-	MarkdownListItem() lipgloss.AdaptiveColor
-	MarkdownListEnumeration() lipgloss.AdaptiveColor
-	MarkdownImage() lipgloss.AdaptiveColor
-	MarkdownImageText() lipgloss.AdaptiveColor
-	MarkdownCodeBlock() lipgloss.AdaptiveColor
+	MarkdownText() AdaptiveColor
+	MarkdownHeading() AdaptiveColor
+	MarkdownLink() AdaptiveColor
+	MarkdownLinkText() AdaptiveColor
+	MarkdownCode() AdaptiveColor
+	MarkdownBlockQuote() AdaptiveColor
+	MarkdownEmph() AdaptiveColor
+	MarkdownStrong() AdaptiveColor
+	MarkdownHorizontalRule() AdaptiveColor
+	MarkdownListItem() AdaptiveColor
+	MarkdownListEnumeration() AdaptiveColor
+	MarkdownImage() AdaptiveColor
+	MarkdownImageText() AdaptiveColor
+	MarkdownCodeBlock() AdaptiveColor
 
 	// Syntax highlighting colors
-	SyntaxComment() lipgloss.AdaptiveColor
-	SyntaxKeyword() lipgloss.AdaptiveColor
-	SyntaxFunction() lipgloss.AdaptiveColor
-	SyntaxVariable() lipgloss.AdaptiveColor
-	SyntaxString() lipgloss.AdaptiveColor
-	SyntaxNumber() lipgloss.AdaptiveColor
-	SyntaxType() lipgloss.AdaptiveColor
-	SyntaxOperator() lipgloss.AdaptiveColor
-	SyntaxPunctuation() lipgloss.AdaptiveColor
+	SyntaxComment() AdaptiveColor
+	SyntaxKeyword() AdaptiveColor
+	SyntaxFunction() AdaptiveColor
+	SyntaxVariable() AdaptiveColor
+	SyntaxString() AdaptiveColor
+	SyntaxNumber() AdaptiveColor
+	SyntaxType() AdaptiveColor
+	SyntaxOperator() AdaptiveColor
+	SyntaxPunctuation() AdaptiveColor
 }
 
 // BaseTheme provides a default implementation of the Theme interface
 // that can be embedded in concrete theme implementations.
 type BaseTheme struct {
 	// Base colors
-	PrimaryColor   lipgloss.AdaptiveColor
-	SecondaryColor lipgloss.AdaptiveColor
-	AccentColor    lipgloss.AdaptiveColor
+	PrimaryColor   AdaptiveColor
+	SecondaryColor AdaptiveColor
+	AccentColor    AdaptiveColor
 
 	// Status colors
-	ErrorColor   lipgloss.AdaptiveColor
-	WarningColor lipgloss.AdaptiveColor
-	SuccessColor lipgloss.AdaptiveColor
-	InfoColor    lipgloss.AdaptiveColor
+	ErrorColor   AdaptiveColor
+	WarningColor AdaptiveColor
+	SuccessColor AdaptiveColor
+	InfoColor    AdaptiveColor
 
 	// Text colors
-	TextColor           lipgloss.AdaptiveColor
-	TextMutedColor      lipgloss.AdaptiveColor
-	TextEmphasizedColor lipgloss.AdaptiveColor
+	TextColor           AdaptiveColor
+	TextMutedColor      AdaptiveColor
+	TextEmphasizedColor AdaptiveColor
 
 	// Background colors
-	BackgroundColor          lipgloss.AdaptiveColor
-	BackgroundSecondaryColor lipgloss.AdaptiveColor
-	BackgroundDarkerColor    lipgloss.AdaptiveColor
+	BackgroundColor          AdaptiveColor
+	BackgroundSecondaryColor AdaptiveColor
+	BackgroundDarkerColor    AdaptiveColor
 
 	// Border colors
-	BorderNormalColor  lipgloss.AdaptiveColor
-	BorderFocusedColor lipgloss.AdaptiveColor
-	BorderDimColor     lipgloss.AdaptiveColor
+	BorderNormalColor  AdaptiveColor
+	BorderFocusedColor AdaptiveColor
+	BorderDimColor     AdaptiveColor
 
 	// Diff view colors
-	DiffAddedColor               lipgloss.AdaptiveColor
-	DiffRemovedColor             lipgloss.AdaptiveColor
-	DiffContextColor             lipgloss.AdaptiveColor
-	DiffHunkHeaderColor          lipgloss.AdaptiveColor
-	DiffHighlightAddedColor      lipgloss.AdaptiveColor
-	DiffHighlightRemovedColor    lipgloss.AdaptiveColor
-	DiffAddedBgColor             lipgloss.AdaptiveColor
-	DiffRemovedBgColor           lipgloss.AdaptiveColor
-	DiffContextBgColor           lipgloss.AdaptiveColor
-	DiffLineNumberColor          lipgloss.AdaptiveColor
-	DiffAddedLineNumberBgColor   lipgloss.AdaptiveColor
-	DiffRemovedLineNumberBgColor lipgloss.AdaptiveColor
+	DiffAddedColor               AdaptiveColor
+	DiffRemovedColor             AdaptiveColor
+	DiffContextColor             AdaptiveColor
+	DiffHunkHeaderColor          AdaptiveColor
+	DiffHighlightAddedColor      AdaptiveColor
+	DiffHighlightRemovedColor    AdaptiveColor
+	DiffAddedBgColor             AdaptiveColor
+	DiffRemovedBgColor           AdaptiveColor
+	DiffContextBgColor           AdaptiveColor
+	DiffLineNumberColor          AdaptiveColor
+	DiffAddedLineNumberBgColor   AdaptiveColor
+	DiffRemovedLineNumberBgColor AdaptiveColor
 
 	// Markdown colors
-	MarkdownTextColor            lipgloss.AdaptiveColor
-	MarkdownHeadingColor         lipgloss.AdaptiveColor
-	MarkdownLinkColor            lipgloss.AdaptiveColor
-	MarkdownLinkTextColor        lipgloss.AdaptiveColor
-	MarkdownCodeColor            lipgloss.AdaptiveColor
-	MarkdownBlockQuoteColor      lipgloss.AdaptiveColor
-	MarkdownEmphColor            lipgloss.AdaptiveColor
-	MarkdownStrongColor          lipgloss.AdaptiveColor
-	MarkdownHorizontalRuleColor  lipgloss.AdaptiveColor
-	MarkdownListItemColor        lipgloss.AdaptiveColor
-	MarkdownListEnumerationColor lipgloss.AdaptiveColor
-	MarkdownImageColor           lipgloss.AdaptiveColor
-	MarkdownImageTextColor       lipgloss.AdaptiveColor
-	MarkdownCodeBlockColor       lipgloss.AdaptiveColor
+	MarkdownTextColor            AdaptiveColor
+	MarkdownHeadingColor         AdaptiveColor
+	MarkdownLinkColor            AdaptiveColor
+	MarkdownLinkTextColor        AdaptiveColor
+	MarkdownCodeColor            AdaptiveColor
+	MarkdownBlockQuoteColor      AdaptiveColor
+	MarkdownEmphColor            AdaptiveColor
+	MarkdownStrongColor          AdaptiveColor
+	MarkdownHorizontalRuleColor  AdaptiveColor
+	MarkdownListItemColor        AdaptiveColor
+	MarkdownListEnumerationColor AdaptiveColor
+	MarkdownImageColor           AdaptiveColor
+	MarkdownImageTextColor       AdaptiveColor
+	MarkdownCodeBlockColor       AdaptiveColor
 
 	// Syntax highlighting colors
-	SyntaxCommentColor     lipgloss.AdaptiveColor
-	SyntaxKeywordColor     lipgloss.AdaptiveColor
-	SyntaxFunctionColor    lipgloss.AdaptiveColor
-	SyntaxVariableColor    lipgloss.AdaptiveColor
-	SyntaxStringColor      lipgloss.AdaptiveColor
-	SyntaxNumberColor      lipgloss.AdaptiveColor
-	SyntaxTypeColor        lipgloss.AdaptiveColor
-	SyntaxOperatorColor    lipgloss.AdaptiveColor
-	SyntaxPunctuationColor lipgloss.AdaptiveColor
+	SyntaxCommentColor     AdaptiveColor
+	SyntaxKeywordColor     AdaptiveColor
+	SyntaxFunctionColor    AdaptiveColor
+	SyntaxVariableColor    AdaptiveColor
+	SyntaxStringColor      AdaptiveColor
+	SyntaxNumberColor      AdaptiveColor
+	SyntaxTypeColor        AdaptiveColor
+	SyntaxOperatorColor    AdaptiveColor
+	SyntaxPunctuationColor AdaptiveColor
 }
 
 // Implement the Theme interface for BaseTheme
-func (t *BaseTheme) Primary() lipgloss.AdaptiveColor   { return t.PrimaryColor }
-func (t *BaseTheme) Secondary() lipgloss.AdaptiveColor { return t.SecondaryColor }
-func (t *BaseTheme) Accent() lipgloss.AdaptiveColor    { return t.AccentColor }
+func (t *BaseTheme) Primary() AdaptiveColor   { return t.PrimaryColor }
+func (t *BaseTheme) Secondary() AdaptiveColor { return t.SecondaryColor }
+func (t *BaseTheme) Accent() AdaptiveColor    { return t.AccentColor }
 
-func (t *BaseTheme) Error() lipgloss.AdaptiveColor   { return t.ErrorColor }
-func (t *BaseTheme) Warning() lipgloss.AdaptiveColor { return t.WarningColor }
-func (t *BaseTheme) Success() lipgloss.AdaptiveColor { return t.SuccessColor }
-func (t *BaseTheme) Info() lipgloss.AdaptiveColor    { return t.InfoColor }
+func (t *BaseTheme) Error() AdaptiveColor   { return t.ErrorColor }
+func (t *BaseTheme) Warning() AdaptiveColor { return t.WarningColor }
+func (t *BaseTheme) Success() AdaptiveColor { return t.SuccessColor }
+func (t *BaseTheme) Info() AdaptiveColor    { return t.InfoColor }
 
-func (t *BaseTheme) Text() lipgloss.AdaptiveColor           { return t.TextColor }
-func (t *BaseTheme) TextMuted() lipgloss.AdaptiveColor      { return t.TextMutedColor }
-func (t *BaseTheme) TextEmphasized() lipgloss.AdaptiveColor { return t.TextEmphasizedColor }
+func (t *BaseTheme) Text() AdaptiveColor           { return t.TextColor }
+func (t *BaseTheme) TextMuted() AdaptiveColor      { return t.TextMutedColor }
+func (t *BaseTheme) TextEmphasized() AdaptiveColor { return t.TextEmphasizedColor }
 
-func (t *BaseTheme) Background() lipgloss.AdaptiveColor          { return t.BackgroundColor }
-func (t *BaseTheme) BackgroundSecondary() lipgloss.AdaptiveColor { return t.BackgroundSecondaryColor }
-func (t *BaseTheme) BackgroundDarker() lipgloss.AdaptiveColor    { return t.BackgroundDarkerColor }
+func (t *BaseTheme) Background() AdaptiveColor          { return t.BackgroundColor }
+func (t *BaseTheme) BackgroundSecondary() AdaptiveColor { return t.BackgroundSecondaryColor }
+func (t *BaseTheme) BackgroundDarker() AdaptiveColor    { return t.BackgroundDarkerColor }
 
-func (t *BaseTheme) BorderNormal() lipgloss.AdaptiveColor  { return t.BorderNormalColor }
-func (t *BaseTheme) BorderFocused() lipgloss.AdaptiveColor { return t.BorderFocusedColor }
-func (t *BaseTheme) BorderDim() lipgloss.AdaptiveColor     { return t.BorderDimColor }
+func (t *BaseTheme) BorderNormal() AdaptiveColor  { return t.BorderNormalColor }
+func (t *BaseTheme) BorderFocused() AdaptiveColor { return t.BorderFocusedColor }
+func (t *BaseTheme) BorderDim() AdaptiveColor     { return t.BorderDimColor }
 
-func (t *BaseTheme) DiffAdded() lipgloss.AdaptiveColor            { return t.DiffAddedColor }
-func (t *BaseTheme) DiffRemoved() lipgloss.AdaptiveColor          { return t.DiffRemovedColor }
-func (t *BaseTheme) DiffContext() lipgloss.AdaptiveColor          { return t.DiffContextColor }
-func (t *BaseTheme) DiffHunkHeader() lipgloss.AdaptiveColor       { return t.DiffHunkHeaderColor }
-func (t *BaseTheme) DiffHighlightAdded() lipgloss.AdaptiveColor   { return t.DiffHighlightAddedColor }
-func (t *BaseTheme) DiffHighlightRemoved() lipgloss.AdaptiveColor { return t.DiffHighlightRemovedColor }
-func (t *BaseTheme) DiffAddedBg() lipgloss.AdaptiveColor          { return t.DiffAddedBgColor }
-func (t *BaseTheme) DiffRemovedBg() lipgloss.AdaptiveColor        { return t.DiffRemovedBgColor }
-func (t *BaseTheme) DiffContextBg() lipgloss.AdaptiveColor        { return t.DiffContextBgColor }
-func (t *BaseTheme) DiffLineNumber() lipgloss.AdaptiveColor       { return t.DiffLineNumberColor }
-func (t *BaseTheme) DiffAddedLineNumberBg() lipgloss.AdaptiveColor {
+func (t *BaseTheme) DiffAdded() AdaptiveColor            { return t.DiffAddedColor }
+func (t *BaseTheme) DiffRemoved() AdaptiveColor          { return t.DiffRemovedColor }
+func (t *BaseTheme) DiffContext() AdaptiveColor          { return t.DiffContextColor }
+func (t *BaseTheme) DiffHunkHeader() AdaptiveColor       { return t.DiffHunkHeaderColor }
+func (t *BaseTheme) DiffHighlightAdded() AdaptiveColor   { return t.DiffHighlightAddedColor }
+func (t *BaseTheme) DiffHighlightRemoved() AdaptiveColor { return t.DiffHighlightRemovedColor }
+func (t *BaseTheme) DiffAddedBg() AdaptiveColor          { return t.DiffAddedBgColor }
+func (t *BaseTheme) DiffRemovedBg() AdaptiveColor        { return t.DiffRemovedBgColor }
+func (t *BaseTheme) DiffContextBg() AdaptiveColor        { return t.DiffContextBgColor }
+func (t *BaseTheme) DiffLineNumber() AdaptiveColor       { return t.DiffLineNumberColor }
+func (t *BaseTheme) DiffAddedLineNumberBg() AdaptiveColor {
 	return t.DiffAddedLineNumberBgColor
 }
-func (t *BaseTheme) DiffRemovedLineNumberBg() lipgloss.AdaptiveColor {
+func (t *BaseTheme) DiffRemovedLineNumberBg() AdaptiveColor {
 	return t.DiffRemovedLineNumberBgColor
 }
 
-func (t *BaseTheme) MarkdownText() lipgloss.AdaptiveColor       { return t.MarkdownTextColor }
-func (t *BaseTheme) MarkdownHeading() lipgloss.AdaptiveColor    { return t.MarkdownHeadingColor }
-func (t *BaseTheme) MarkdownLink() lipgloss.AdaptiveColor       { return t.MarkdownLinkColor }
-func (t *BaseTheme) MarkdownLinkText() lipgloss.AdaptiveColor   { return t.MarkdownLinkTextColor }
-func (t *BaseTheme) MarkdownCode() lipgloss.AdaptiveColor       { return t.MarkdownCodeColor }
-func (t *BaseTheme) MarkdownBlockQuote() lipgloss.AdaptiveColor { return t.MarkdownBlockQuoteColor }
-func (t *BaseTheme) MarkdownEmph() lipgloss.AdaptiveColor       { return t.MarkdownEmphColor }
-func (t *BaseTheme) MarkdownStrong() lipgloss.AdaptiveColor     { return t.MarkdownStrongColor }
-func (t *BaseTheme) MarkdownHorizontalRule() lipgloss.AdaptiveColor {
+func (t *BaseTheme) MarkdownText() AdaptiveColor       { return t.MarkdownTextColor }
+func (t *BaseTheme) MarkdownHeading() AdaptiveColor    { return t.MarkdownHeadingColor }
+func (t *BaseTheme) MarkdownLink() AdaptiveColor       { return t.MarkdownLinkColor }
+func (t *BaseTheme) MarkdownLinkText() AdaptiveColor   { return t.MarkdownLinkTextColor }
+func (t *BaseTheme) MarkdownCode() AdaptiveColor       { return t.MarkdownCodeColor }
+func (t *BaseTheme) MarkdownBlockQuote() AdaptiveColor { return t.MarkdownBlockQuoteColor }
+func (t *BaseTheme) MarkdownEmph() AdaptiveColor       { return t.MarkdownEmphColor }
+func (t *BaseTheme) MarkdownStrong() AdaptiveColor     { return t.MarkdownStrongColor }
+func (t *BaseTheme) MarkdownHorizontalRule() AdaptiveColor {
 	return t.MarkdownHorizontalRuleColor
 }
-func (t *BaseTheme) MarkdownListItem() lipgloss.AdaptiveColor { return t.MarkdownListItemColor }
-func (t *BaseTheme) MarkdownListEnumeration() lipgloss.AdaptiveColor {
+func (t *BaseTheme) MarkdownListItem() AdaptiveColor { return t.MarkdownListItemColor }
+func (t *BaseTheme) MarkdownListEnumeration() AdaptiveColor {
 	return t.MarkdownListEnumerationColor
 }
-func (t *BaseTheme) MarkdownImage() lipgloss.AdaptiveColor     { return t.MarkdownImageColor }
-func (t *BaseTheme) MarkdownImageText() lipgloss.AdaptiveColor { return t.MarkdownImageTextColor }
-func (t *BaseTheme) MarkdownCodeBlock() lipgloss.AdaptiveColor { return t.MarkdownCodeBlockColor }
+func (t *BaseTheme) MarkdownImage() AdaptiveColor     { return t.MarkdownImageColor }
+func (t *BaseTheme) MarkdownImageText() AdaptiveColor { return t.MarkdownImageTextColor }
+func (t *BaseTheme) MarkdownCodeBlock() AdaptiveColor { return t.MarkdownCodeBlockColor }
 
-func (t *BaseTheme) SyntaxComment() lipgloss.AdaptiveColor     { return t.SyntaxCommentColor }
-func (t *BaseTheme) SyntaxKeyword() lipgloss.AdaptiveColor     { return t.SyntaxKeywordColor }
-func (t *BaseTheme) SyntaxFunction() lipgloss.AdaptiveColor    { return t.SyntaxFunctionColor }
-func (t *BaseTheme) SyntaxVariable() lipgloss.AdaptiveColor    { return t.SyntaxVariableColor }
-func (t *BaseTheme) SyntaxString() lipgloss.AdaptiveColor      { return t.SyntaxStringColor }
-func (t *BaseTheme) SyntaxNumber() lipgloss.AdaptiveColor      { return t.SyntaxNumberColor }
-func (t *BaseTheme) SyntaxType() lipgloss.AdaptiveColor        { return t.SyntaxTypeColor }
-func (t *BaseTheme) SyntaxOperator() lipgloss.AdaptiveColor    { return t.SyntaxOperatorColor }
-func (t *BaseTheme) SyntaxPunctuation() lipgloss.AdaptiveColor { return t.SyntaxPunctuationColor }
+func (t *BaseTheme) SyntaxComment() AdaptiveColor     { return t.SyntaxCommentColor }
+func (t *BaseTheme) SyntaxKeyword() AdaptiveColor     { return t.SyntaxKeywordColor }
+func (t *BaseTheme) SyntaxFunction() AdaptiveColor    { return t.SyntaxFunctionColor }
+func (t *BaseTheme) SyntaxVariable() AdaptiveColor    { return t.SyntaxVariableColor }
+func (t *BaseTheme) SyntaxString() AdaptiveColor      { return t.SyntaxStringColor }
+func (t *BaseTheme) SyntaxNumber() AdaptiveColor      { return t.SyntaxNumberColor }
+func (t *BaseTheme) SyntaxType() AdaptiveColor        { return t.SyntaxTypeColor }
+func (t *BaseTheme) SyntaxOperator() AdaptiveColor    { return t.SyntaxOperatorColor }
+func (t *BaseTheme) SyntaxPunctuation() AdaptiveColor { return t.SyntaxPunctuationColor }

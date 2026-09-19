@@ -1,17 +1,14 @@
 package styles
 
 import (
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
-	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
+
+	"charm.land/lipgloss/v2"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSurfaceRestoresBackgroundAfterNestedReset(t *testing.T) {
-	previous := lipgloss.ColorProfile()
-	lipgloss.SetColorProfile(termenv.TrueColor)
-	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
 	content := "\x1b[31mtext\x1b[0m    \n  \x1b[49m padding"
 	view := Surface(content, lipgloss.Color("#292929"))
 	sample := lipgloss.NewStyle().Background(lipgloss.Color("#292929")).Render(" ")

@@ -1,9 +1,9 @@
 package dialog
 
 import (
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/muratmirgun/owncode/internal/session"
 	"github.com/muratmirgun/owncode/internal/tui/layout"
 	"github.com/muratmirgun/owncode/internal/tui/styles"
@@ -21,7 +21,7 @@ type CloseSessionDialogMsg struct{}
 
 // SessionDialog interface for the session switching dialog
 type SessionDialog interface {
-	tea.Model
+	util.Model
 	layout.Bindings
 	SetSessions(sessions []session.Session)
 	SetSelectedSession(sessionID string)
@@ -75,9 +75,9 @@ func (s *sessionDialogCmp) Init() tea.Cmd {
 	return nil
 }
 
-func (s *sessionDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (s *sessionDialogCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, sessionKeys.Up) || key.Matches(msg, sessionKeys.K):
 			if s.selectedIdx > 0 {

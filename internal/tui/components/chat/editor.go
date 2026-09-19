@@ -9,10 +9,10 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textarea"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/app"
 	"github.com/muratmirgun/owncode/internal/llm/agent"
@@ -157,7 +157,7 @@ func (m *editorCmp) send() tea.Cmd {
 	)
 }
 
-func (m *editorCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *editorCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case HomeEditorMsg:
@@ -218,7 +218,7 @@ func (m *editorCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		m.attachments = append(m.attachments, msg.Attachment)
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if handled, cmd := m.handleSlash(msg); handled {
 			return m, cmd
 		}
@@ -231,8 +231,8 @@ func (m *editorCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.attachments = nil
 			return m, nil
 		}
-		if m.deleteMode && len(msg.Runes) > 0 && unicode.IsDigit(msg.Runes[0]) {
-			num := int(msg.Runes[0] - '0')
+		if m.deleteMode && len(msg.Text) > 0 && unicode.IsDigit([]rune(msg.Text)[0]) {
+			num := int([]rune(msg.Text)[0] - '0')
 			m.deleteMode = false
 			if num < 10 && len(m.attachments) > num {
 				if num == 0 {
@@ -297,14 +297,14 @@ func (m *editorCmp) editorView() string {
 		Foreground(t.Primary()).Background(t.BackgroundSecondary())
 
 	if m.home && len(m.attachments) == 0 {
-		m.textarea.SetHeight(max(1, m.height-2))
+		m.resizeTextarea(max(1, m.height-2))
 		return lipgloss.JoinVertical(lipgloss.Left, "", m.textarea.View(), m.throughputView())
 	}
-	m.textarea.SetHeight(max(1, m.height-1))
+	m.resizeTextarea(max(1, m.height-1))
 	if len(m.attachments) == 0 {
 		return lipgloss.JoinVertical(lipgloss.Left, m.throughputView(), lipgloss.JoinHorizontal(lipgloss.Top, style.Render(">"), m.textarea.View()))
 	}
-	m.textarea.SetHeight(max(1, m.height-2))
+	m.resizeTextarea(max(1, m.height-2))
 	return lipgloss.JoinVertical(lipgloss.Top,
 		m.throughputView(),
 		m.attachmentsContent(),
@@ -317,7 +317,7 @@ func (m *editorCmp) SetSize(width, height int) tea.Cmd {
 	m.width = width
 	m.height = height
 	m.textarea.SetWidth(max(1, width-2))
-	m.textarea.SetHeight(max(1, height-1))
+	m.resizeTextarea(max(1, height-1))
 	return nil
 }
 
@@ -361,20 +361,23 @@ func CreateTextArea(existing *textarea.Model) textarea.Model {
 	textColor := t.Text()
 
 	ta := textarea.New()
-	ta.BlurredStyle.Base = styles.BaseStyle().Background(bgColor).Foreground(textColor)
-	ta.BlurredStyle.CursorLine = styles.BaseStyle().Background(bgColor)
-	ta.BlurredStyle.Placeholder = styles.BaseStyle().Background(bgColor).Foreground(textColor)
-	ta.BlurredStyle.Text = styles.BaseStyle().Background(bgColor).Foreground(textColor)
-	ta.FocusedStyle.Base = styles.BaseStyle().Background(bgColor).Foreground(textColor)
-	ta.FocusedStyle.CursorLine = styles.BaseStyle().Background(bgColor)
-	ta.FocusedStyle.Placeholder = styles.BaseStyle().Background(bgColor).Foreground(textColor)
-	ta.FocusedStyle.Text = styles.BaseStyle().Background(bgColor).Foreground(textColor)
+	ta.SetVirtualCursor(true)
+	taStyles := ta.Styles()
+	taStyles.Blurred.Base = styles.BaseStyle().Background(bgColor).Foreground(textColor)
+	taStyles.Blurred.CursorLine = styles.BaseStyle().Background(bgColor)
+	taStyles.Blurred.Placeholder = styles.BaseStyle().Background(bgColor).Foreground(textColor)
+	taStyles.Blurred.Text = styles.BaseStyle().Background(bgColor).Foreground(textColor)
+	taStyles.Focused.Base = styles.BaseStyle().Background(bgColor).Foreground(textColor)
+	taStyles.Focused.CursorLine = styles.BaseStyle().Background(bgColor)
+	taStyles.Focused.Placeholder = styles.BaseStyle().Background(bgColor).Foreground(textColor)
+	taStyles.Focused.Text = styles.BaseStyle().Background(bgColor).Foreground(textColor)
 
-	ta.FocusedStyle.EndOfBuffer = styles.BaseStyle().Background(bgColor)
-	ta.BlurredStyle.EndOfBuffer = styles.BaseStyle().Background(bgColor)
-	ta.FocusedStyle.Prompt = styles.BaseStyle().Background(bgColor)
-	ta.BlurredStyle.Prompt = styles.BaseStyle().Background(bgColor)
-	ta.Cursor.Style = styles.BaseStyle().Background(bgColor).Foreground(textColor)
+	taStyles.Focused.EndOfBuffer = styles.BaseStyle().Background(bgColor)
+	taStyles.Blurred.EndOfBuffer = styles.BaseStyle().Background(bgColor)
+	taStyles.Focused.Prompt = styles.BaseStyle().Background(bgColor)
+	taStyles.Blurred.Prompt = styles.BaseStyle().Background(bgColor)
+	taStyles.Cursor.Color = textColor
+	ta.SetStyles(taStyles)
 	ta.Prompt = " "
 	ta.ShowLineNumbers = false
 	ta.CharLimit = -1
@@ -390,7 +393,7 @@ func CreateTextArea(existing *textarea.Model) textarea.Model {
 	return ta
 }
 
-func NewEditorCmp(app *app.App) tea.Model {
+func NewEditorCmp(app *app.App) util.Model {
 	ta := CreateTextArea(nil)
 	return &editorCmp{
 		app:      app,
@@ -410,4 +413,25 @@ func (m *editorCmp) PreferredHeight(width int) int {
 		extra++
 	}
 	return min(8, max(1, lines)) + extra
+}
+
+// resizeTextarea reveals the complete draft when the expanded area can fit it.
+func (m *editorCmp) resizeTextarea(height int) {
+	previous := m.textarea.Height()
+	m.textarea.SetHeight(height)
+	if height <= previous {
+		return
+	}
+	lines := strings.Count(ansi.Wrap(m.textarea.Value(), max(1, m.textarea.Width()-1), ""), "\n") + 1
+	if lines > height {
+		return
+	}
+	row := m.textarea.Line()
+	info := m.textarea.LineInfo()
+	column := info.StartColumn + info.ColumnOffset
+	m.textarea.MoveToBegin()
+	for m.textarea.Line() < row {
+		m.textarea.CursorDown()
+	}
+	m.textarea.SetCursorColumn(column)
 }

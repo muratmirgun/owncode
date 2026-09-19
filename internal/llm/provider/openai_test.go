@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/muratmirgun/owncode/internal/llm/models"
+	"github.com/muratmirgun/owncode/internal/llm/tools"
 	"github.com/muratmirgun/owncode/internal/message"
+	"github.com/openai/openai-go"
 	"github.com/stretchr/testify/require"
 )
 
@@ -72,6 +74,7 @@ func TestCompatibleProviderStream(t *testing.T) {
 	require.Equal(t, 0.6, body["temperature"])
 	require.Equal(t, 0.95, body["top_p"])
 	require.Equal(t, true, body["chat_template_kwargs"].(map[string]any)["preserve_thinking"])
+	require.NotContains(t, body, "tools")
 	require.NotContains(t, body, "reasoning_effort")
 	require.NotContains(t, body, "max_completion_tokens")
 }
@@ -134,4 +137,56 @@ func TestNativeOpenAIReasoningParams(t *testing.T) {
 	require.Equal(t, float64(4096), body["max_completion_tokens"])
 	require.Equal(t, "medium", body["reasoning_effort"])
 	require.NotContains(t, body, "max_tokens")
+}
+
+func TestCompatibleProviderOmitsEmptyTools(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		tools []tools.BaseTool
+	}{
+		{name: "nil"},
+		{name: "empty", tools: []tools.BaseTool{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				if _, exists := body["tools"]; exists {
+					http.Error(w, "tools must be omitted when empty", http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, err := fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"Conversation summary"},"finish_reason":"stop"}]}`)
+				if err != nil {
+					t.Error(err)
+				}
+			}))
+			defer server.Close()
+			client := newOpenAIClient(providerClientOptions{
+				model:         models.Model{APIModel: "qwen38", Custom: true},
+				openaiOptions: []OpenAIOption{WithOpenAIBaseURL(server.URL)},
+			})
+			response, err := client.send(context.Background(), []message.Message{
+				{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "Summarize this conversation"}}},
+			}, tc.tools)
+			require.NoError(t, err)
+			require.Equal(t, "Conversation summary", response.Content)
+		})
+	}
+}
+
+func TestOpenAIParamsPreserveTools(t *testing.T) {
+	client := &openaiClient{}
+	params := client.preparedParams(nil, []openai.ChatCompletionToolParam{
+		{Function: openai.FunctionDefinitionParam{Name: "lookup"}},
+	})
+	data, err := json.Marshal(params)
+	require.NoError(t, err)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(data, &body))
+	require.Len(t, body["tools"], 1)
 }

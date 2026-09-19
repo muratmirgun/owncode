@@ -1,9 +1,9 @@
 package dialog
 
 import (
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/muratmirgun/owncode/internal/tui/layout"
 	"github.com/muratmirgun/owncode/internal/tui/styles"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
@@ -20,7 +20,7 @@ type CloseThemeDialogMsg struct{}
 
 // ThemeDialog interface for the theme switching dialog
 type ThemeDialog interface {
-	tea.Model
+	util.Model
 	layout.Bindings
 }
 
@@ -84,9 +84,9 @@ func (t *themeDialogCmp) Init() tea.Cmd {
 	return nil
 }
 
-func (t *themeDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (t *themeDialogCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, themeKeys.Up) || key.Matches(msg, themeKeys.K):
 			if t.selectedIdx > 0 {

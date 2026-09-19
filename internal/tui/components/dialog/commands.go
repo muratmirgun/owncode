@@ -1,9 +1,9 @@
 package dialog
 
 import (
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	utilComponents "github.com/muratmirgun/owncode/internal/tui/components/util"
 	"github.com/muratmirgun/owncode/internal/tui/layout"
 	"github.com/muratmirgun/owncode/internal/tui/styles"
@@ -56,7 +56,7 @@ type CloseCommandDialogMsg struct{}
 
 // CommandDialog interface for the command selection dialog
 type CommandDialog interface {
-	tea.Model
+	util.Model
 	layout.Bindings
 	SetCommands(commands []Command)
 }
@@ -87,10 +87,10 @@ func (c *commandDialogCmp) Init() tea.Cmd {
 	return c.listView.Init()
 }
 
-func (c *commandDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (c *commandDialogCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, commandKeys.Enter):
 			selectedItem, idx := c.listView.GetSelectedItem()

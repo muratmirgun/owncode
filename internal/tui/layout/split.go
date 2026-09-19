@@ -1,14 +1,15 @@
 package layout
 
 import (
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
+	"github.com/muratmirgun/owncode/internal/tui/util"
 )
 
 type SplitPaneLayout interface {
-	tea.Model
+	util.Model
 	Sizeable
 	Bindings
 	SetLeftPanel(panel Container) tea.Cmd
@@ -53,7 +54,7 @@ func (s *splitPaneLayout) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func (s *splitPaneLayout) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (s *splitPaneLayout) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
