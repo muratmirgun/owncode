@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
-	"sync"
 
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/llm/models"
@@ -30,7 +30,8 @@ func GetAgentPrompt(agentName config.AgentName, provider models.ModelProvider) s
 	if agentName == config.AgentCoder || agentName == config.AgentTask {
 		// Add context from project-specific instruction files if they exist
 		contextContent := getContextFromPaths()
-		logging.Debug("Context content", "Context", contextContent)
+		logging.Debug("Loaded project instructions", "bytes", len(contextContent))
+		basePrompt += "\n\n" + agentInstructionsPolicy
 		if contextContent != "" {
 			return fmt.Sprintf("%s\n\n# Project-Specific Context\n Make sure to follow the instructions in the context below\n%s", basePrompt, contextContent)
 		}
@@ -38,94 +39,93 @@ func GetAgentPrompt(agentName config.AgentName, provider models.ModelProvider) s
 	return basePrompt
 }
 
-var (
-	onceContext    sync.Once
-	contextContent string
-)
+const agentInstructionsPolicy = `# Repository instructions
+AGENTS.md contains instructions for its directory and all descendant directories.
+Ancestor instructions appear before deeper instructions. The deepest applicable AGENTS.md takes precedence when instructions conflict.
+Use agents.md only when AGENTS.md is absent in the same directory.
+Before reading or editing files in a nested directory, check for additional AGENTS.md files between the working directory and the target directory. Read them before doing the work.
+Before working outside the working directory, check that target's ancestor instruction files too.
+Do not apply instructions from unrelated directories. Explicit user instructions take precedence over repository instructions.`
 
 func getContextFromPaths() string {
-	onceContext.Do(func() {
-		var (
-			cfg          = config.Get()
-			workDir      = cfg.WorkingDir
-			contextPaths = cfg.ContextPaths
-		)
-
-		contextContent = processContextPaths(workDir, contextPaths)
-	})
-
-	return contextContent
+	cfg := config.Get()
+	if cfg == nil {
+		return ""
+	}
+	return processContextPaths(cfg.WorkingDir, cfg.ContextPaths)
 }
 
 func processContextPaths(workDir string, paths []string) string {
-	var (
-		wg       sync.WaitGroup
-		resultCh = make(chan string)
-	)
-
-	// Track processed files to avoid duplicates
-	processedFiles := make(map[string]bool)
-	var processedMutex sync.Mutex
-
-	for _, path := range paths {
-		wg.Add(1)
-		go func(p string) {
-			defer wg.Done()
-
-			if strings.HasSuffix(p, "/") {
-				filepath.WalkDir(filepath.Join(workDir, p), func(path string, d os.DirEntry, err error) error {
-					if err != nil {
-						return err
-					}
-					if !d.IsDir() {
-						// Check if we've already processed this file (case-insensitive)
-						processedMutex.Lock()
-						lowerPath := strings.ToLower(path)
-						if !processedFiles[lowerPath] {
-							processedFiles[lowerPath] = true
-							processedMutex.Unlock()
-
-							if result := processFile(path); result != "" {
-								resultCh <- result
-							}
-						} else {
-							processedMutex.Unlock()
-						}
-					}
-					return nil
-				})
-			} else {
-				fullPath := filepath.Join(workDir, p)
-
-				// Check if we've already processed this file (case-insensitive)
-				processedMutex.Lock()
-				lowerPath := strings.ToLower(fullPath)
-				if !processedFiles[lowerPath] {
-					processedFiles[lowerPath] = true
-					processedMutex.Unlock()
-
-					result := processFile(fullPath)
-					if result != "" {
-						resultCh <- result
-					}
-				} else {
-					processedMutex.Unlock()
-				}
+	var results []string
+	var processed []os.FileInfo
+	appendFile := func(path string) {
+		info, err := os.Stat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			return
+		}
+		for _, previous := range processed {
+			if os.SameFile(previous, info) {
+				return
 			}
-		}(path)
+		}
+		if result := processFile(path); result != "" {
+			processed = append(processed, info)
+			results = append(results, result)
+		}
 	}
 
-	go func() {
-		wg.Wait()
-		close(resultCh)
-	}()
-
-	results := make([]string, 0)
-	for result := range resultCh {
-		results = append(results, result)
+	// Ordered loading makes directory precedence stable across runs.
+	for _, path := range agentInstructionPaths(workDir) {
+		appendFile(path)
 	}
-
+	for _, path := range paths {
+		fullPath := path
+		if !filepath.IsAbs(path) {
+			fullPath = filepath.Join(workDir, path)
+		}
+		if !strings.HasSuffix(path, "/") {
+			appendFile(fullPath)
+			continue
+		}
+		_ = filepath.WalkDir(fullPath, func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if !entry.IsDir() {
+				appendFile(path)
+			}
+			return nil
+		})
+	}
 	return strings.Join(results, "\n")
+}
+
+func agentInstructionPaths(workDir string) []string {
+	dir, err := filepath.Abs(workDir)
+	if err != nil {
+		return nil
+	}
+	var directories []string
+	for {
+		directories = append(directories, dir)
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	slices.Reverse(directories)
+	var paths []string
+	for _, dir := range directories {
+		for _, name := range []string{"AGENTS.md", "agents.md"} {
+			path := filepath.Join(dir, name)
+			if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+				paths = append(paths, path)
+				break
+			}
+		}
+	}
+	return paths
 }
 
 func processFile(filePath string) string {

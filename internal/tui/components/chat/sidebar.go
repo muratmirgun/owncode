@@ -12,6 +12,7 @@ import (
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/diff"
 	"github.com/muratmirgun/owncode/internal/history"
+	"github.com/muratmirgun/owncode/internal/llm/models"
 	"github.com/muratmirgun/owncode/internal/pubsub"
 	"github.com/muratmirgun/owncode/internal/session"
 	"github.com/muratmirgun/owncode/internal/tui/styles"
@@ -99,7 +100,31 @@ func (m *sidebarCmp) View() string {
 	if title == "" {
 		title = "New chat"
 	}
-	rows := []string{heading("OwnCode"), line(filepath.Base(config.WorkingDirectory())), line(""), heading("Session"), line(title), line(""), heading("Language servers")}
+	rows := []string{heading("OwnCode"), line(filepath.Base(config.WorkingDirectory())), line(""), heading("Session"), line(title), line("")}
+	cfg := config.Get()
+	model := models.SupportedModels[cfg.Agents[config.AgentCoder].Model]
+	used := m.session.PromptTokens + m.session.CompletionTokens
+	rows = append(rows, heading("Context"))
+	if model.ContextWindow > 0 {
+		percent := min(100, int(float64(used)*100/float64(model.ContextWindow)))
+		barWidth := max(1, min(20, m.width-8))
+		filled := percent * barWidth / 100
+		bar := strings.Repeat("━", filled) + strings.Repeat("─", barWidth-filled)
+		color := t.Primary()
+		if percent >= cfg.Compaction.EffectiveThreshold() {
+			color = t.Warning()
+		}
+		rows = append(rows, base.Foreground(color).Render(fmt.Sprintf("%s %d%%", bar, percent)), line(fmt.Sprintf("%d / %d tokens", used, model.ContextWindow)))
+	} else {
+		rows = append(rows, line("Model not configured"))
+	}
+	mode := cfg.Compaction.EffectiveMode()
+	if cfg.AutoCompact {
+		mode += fmt.Sprintf(" · auto %d%%", cfg.Compaction.EffectiveThreshold())
+	} else {
+		mode += " · manual"
+	}
+	rows = append(rows, line(mode), line("/compact · /agents"), line(""), heading("Language servers"))
 	var names []string
 	for name := range config.Get().LSP {
 		names = append(names, name)

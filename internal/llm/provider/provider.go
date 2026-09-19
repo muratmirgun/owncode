@@ -35,6 +35,7 @@ type TokenUsage struct {
 }
 
 type ProviderResponse struct {
+	Native       *message.NativeContext
 	Content      string
 	ToolCalls    []message.ToolCall
 	Usage        TokenUsage
@@ -179,7 +180,17 @@ func (p *baseProvider[C]) cleanMessages(messages []message.Message) (cleaned []m
 }
 
 func (p *baseProvider[C]) SendMessages(ctx context.Context, messages []message.Message, tools []tools.BaseTool) (*ProviderResponse, error) {
+	if err := validateContext(messages, p.options.model); err != nil {
+		return nil, err
+	}
 	messages = p.cleanMessages(messages)
+	if hasNative(messages) {
+		client, ok := any(p.client).(nativeClient)
+		if !ok {
+			return nil, fmt.Errorf("native context cannot be replayed with this provider")
+		}
+		return client.nativeSend(ctx, messages, tools)
+	}
 	return p.client.send(ctx, messages, tools)
 }
 
@@ -188,7 +199,19 @@ func (p *baseProvider[C]) Model() models.Model {
 }
 
 func (p *baseProvider[C]) StreamResponse(ctx context.Context, messages []message.Message, tools []tools.BaseTool) <-chan ProviderEvent {
+	if err := validateContext(messages, p.options.model); err != nil {
+		return nativeEvents(ctx, func(func(ProviderEvent) bool) error { return err })
+	}
 	messages = p.cleanMessages(messages)
+	if hasNative(messages) {
+		client, ok := any(p.client).(nativeClient)
+		if !ok {
+			return nativeEvents(ctx, func(func(ProviderEvent) bool) error {
+				return fmt.Errorf("native context cannot be replayed with this provider")
+			})
+		}
+		return client.nativeStream(ctx, messages, tools)
+	}
 	return p.client.stream(ctx, messages, tools)
 }
 
@@ -244,4 +267,20 @@ func WithCopilotOptions(copilotOptions ...CopilotOption) ProviderClientOption {
 	return func(options *providerClientOptions) {
 		options.copilotOptions = copilotOptions
 	}
+}
+
+func validateContext(messages []message.Message, model models.Model) error {
+	for _, msg := range messages {
+		for _, part := range msg.Parts {
+			switch part.(type) {
+			case message.ContextSnapshot:
+				return fmt.Errorf("invalid context snapshot; context could not be restored")
+			case message.BinaryContent, message.ImageURLContent:
+				if !model.SupportsAttachments {
+					return fmt.Errorf("context contains images; select a vision model or select shake in Settings > Context > Method and run /compact")
+				}
+			}
+		}
+	}
+	return nil
 }

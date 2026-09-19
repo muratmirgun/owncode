@@ -75,7 +75,13 @@ This Go application does not load npm provider plugins.
 
 OwnCode uses `.owncode.json`, the `.owncode/` data directory, and `owncode.db`.
 It uses the `OWNCODE_` environment prefix and the `owncode` theme name.
-It reads project instructions from files such as `OwnCode.md` and `OWNCODE.md`.
+It automatically reads `AGENTS.md` from ancestor directories through the working directory.
+Deeper instructions take precedence within their directory. `agents.md` is a fallback when `AGENTS.md` is absent.
+This works without a `contextPaths` entry, including when that setting is customized.
+The coding and task agents also receive instructions to check nested instruction files before working in those directories.
+Nested discovery is agent-driven; OwnCode does not load the entire directory tree into the initial prompt.
+Instruction files load when an agent provider is created. Restart OwnCode after changing them to refresh an active agent.
+OwnCode also reads configured project instructions such as `OwnCode.md` and `OWNCODE.md`.
 It does not automatically import old OpenCode settings or sessions.
 Copy the required settings manually, and change any explicit data paths and theme names.
 Keep provider keys outside this repository.
