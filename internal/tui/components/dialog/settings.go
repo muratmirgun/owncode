@@ -67,7 +67,7 @@ func (s *settingsCmp) rows() []settingRow {
 		}
 		rows = []settingRow{
 			{"Compaction", "Method", cfg.Compaction.EffectiveMethod(), "Summary / shake / snapcompact / jev / native. Jev requires a config key; native requires provider support.", "compact-method"},
-			{"Compaction", "Jev key", jevStatus, "Set compaction.jev.apiKey in a private local config. The key is never displayed here.", ""},
+			{"Compaction", "Jev key", jevStatus, "Set compaction.jev.apiKey in ~/.owncode.json. The key is never displayed here.", ""},
 			{"Compaction", "Summary mode", cfg.Compaction.EffectiveMode(), "Balanced: coding context. Brief: essentials. Handoff: structured continuation notes.", "compact-mode"},
 			{"Compaction", "Keep in summary", cfg.Compaction.Focus, "Optional focus: paths, decisions, tests, or details to preserve. Enter to edit.", "compact-focus"},
 			{"Compaction", "Auto compact", fmt.Sprint(cfg.AutoCompact), "Automatically compact after a turn reaches the selected context threshold.", "compact-auto"},
