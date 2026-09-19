@@ -240,8 +240,8 @@ func (p *chatPage) homeView() (string, int, int) {
 	keyStyle := base.Foreground(t.Secondary()).Bold(true)
 	labelStyle := base.Foreground(t.TextMuted())
 	hintsText := " " + keyStyle.Render("/") + labelStyle.Render(" commands   ") +
-		keyStyle.Render("ctrl+o") + labelStyle.Render(" models   ") +
-		keyStyle.Render("ctrl+s") + labelStyle.Render(" sessions")
+		keyStyle.Render("F2") + labelStyle.Render(" models   ") +
+		keyStyle.Render("F3") + labelStyle.Render(" sessions   ") + keyStyle.Render("F4") + labelStyle.Render(" reasoning")
 	hints := base.Width(editorWidth).Render(ansi.Truncate(hintsText, editorWidth, "…"))
 	tipText := base.Foreground(t.Warning()).Bold(true).Render("● Tip  ") +
 		base.Foreground(t.Text()).Render("Use ") + keyStyle.Render("@") +

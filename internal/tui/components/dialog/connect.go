@@ -3,6 +3,8 @@ package dialog
 import (
 	"context"
 	"fmt"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -16,7 +18,6 @@ import (
 	"github.com/muratmirgun/owncode/internal/tui/styles"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
 	"github.com/muratmirgun/owncode/internal/tui/util"
-	"github.com/pkg/browser"
 )
 
 // CloseConnectMsg returns to the previous screen without saving a draft.
@@ -74,6 +75,11 @@ func (c *connectCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 			c.cancel = nil
 		}
 		if msg.err != nil {
+			if msg.connection.Token != nil && msg.connection.Token.Access != "" {
+				c.connection = msg.connection
+				c.stage, c.loginURL, c.err = "retry", "", msg.err.Error()
+				return c, nil
+			}
 			c.reset()
 			c.err = msg.err.Error()
 			return c, nil
@@ -142,6 +148,10 @@ func (c *connectCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 					return util.ReportInfo("Login URL copied")()
 				}
 			}
+		case "retry":
+			if msg.String() == "enter" || msg.String() == "r" {
+				return c, c.retryModels()
+			}
 		case "models":
 			switch msg.String() {
 			case "up":
@@ -171,12 +181,38 @@ func (c *connectCmp) login() tea.Cmd {
 	return func() tea.Msg {
 		defer login.Close()
 		// The copy action remains available if the operating system cannot open a browser.
-		_ = browser.OpenURL(login.URL)
+		launchCtx, stopLaunch := context.WithTimeout(ctx, 10*time.Second)
+		_ = browserCommand(launchCtx, runtime.GOOS, login.URL).Run()
+		stopLaunch()
 		token, err := login.Wait(ctx)
 		connection := auth.Connection{Token: &token}
 		if err == nil {
 			connection.Models, err = auth.Discover(ctx, auth.ChatGPT, connection)
 		}
+		return connectResultMsg{owner: c, attempt: attempt, connection: connection, err: err}
+	}
+}
+
+// Nil output streams keep browser launch messages outside the terminal renderer.
+func browserCommand(ctx context.Context, platform, url string) *exec.Cmd {
+	switch platform {
+	case "darwin":
+		return exec.CommandContext(ctx, "open", url)
+	case "windows":
+		return exec.CommandContext(ctx, "rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		return exec.CommandContext(ctx, "xdg-open", url)
+	}
+}
+
+func (c *connectCmp) retryModels() tea.Cmd {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	c.cancel = cancel
+	c.stage, c.err = "waiting", ""
+	connection, attempt, id := c.connection, c.attempt, c.id
+	return func() tea.Msg {
+		catalog, err := auth.Discover(ctx, id, connection)
+		connection.Models = catalog
 		return connectResultMsg{owner: c, attempt: attempt, connection: connection, err: err}
 	}
 }
@@ -216,6 +252,9 @@ func (c *connectCmp) View() string {
 		help = "enter check key · esc back"
 	case "waiting":
 		text := "Checking your key and loading models…"
+		if c.connection.Token != nil {
+			text = "Loading ChatGPT models…"
+		}
 		if c.loginURL != "" {
 			text = "Complete ChatGPT login in your browser."
 		}
@@ -225,6 +264,9 @@ func (c *connectCmp) View() string {
 			rows = append(rows, "", line("Browser did not open? Copy the login link."))
 			help = "c copy login URL · esc cancel"
 		}
+	case "retry":
+		rows = append(rows, line("ChatGPT login completed."), "", line("The model list could not be loaded."), line("Retry without signing in again, or go back."))
+		help = "enter retry models · esc back"
 	case "models":
 		rows = append(rows, line("Choose a model for chat, tasks, titles, and summaries."), "")
 		count := max(1, min(10, c.height-13))

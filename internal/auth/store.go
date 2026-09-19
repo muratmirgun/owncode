@@ -23,10 +23,12 @@ type Token struct {
 
 // Model describes an available model in a provider connection.
 type Model struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Context int64  `json:"context"`
-	Output  int64  `json:"output"`
+	ReasoningLevels  []string `json:"reasoning_levels,omitempty"`
+	DefaultReasoning string   `json:"default_reasoning,omitempty"`
+	ID               string   `json:"id"`
+	Name             string   `json:"name"`
+	Context          int64    `json:"context"`
+	Output           int64    `json:"output"`
 }
 
 // Connection stores credentials and the model catalog from a successful connection.

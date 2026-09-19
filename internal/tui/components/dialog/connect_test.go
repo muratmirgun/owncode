@@ -1,6 +1,8 @@
 package dialog
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -8,6 +10,33 @@ import (
 	"github.com/muratmirgun/owncode/internal/auth"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCatalogFailureKeepsLoginForRetryAndClearsOnCancel(t *testing.T) {
+	c := NewConnectCmp().(*connectCmp)
+	c.id, c.width, c.height = auth.ChatGPT, 80, 24
+	connection := auth.Connection{Token: &auth.Token{Access: "private-access"}}
+	c.Update(connectResultMsg{owner: c, connection: connection, err: errors.New("empty catalog")})
+	require.Equal(t, "retry", c.stage)
+	require.Contains(t, c.View(), "login completed")
+	require.NotContains(t, c.View(), "private-access")
+	_, cmd := c.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	require.Equal(t, "waiting", c.stage)
+	require.Equal(t, "private-access", c.connection.Token.Access)
+	c.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	require.Nil(t, c.connection.Token)
+	require.Equal(t, "providers", c.stage)
+}
+
+func TestBrowserLaunchDoesNotInheritTerminalOutput(t *testing.T) {
+	for _, platform := range []string{"darwin", "linux", "windows"} {
+		cmd := browserCommand(context.Background(), platform, "https://auth.openai.com/example?state=test")
+		require.Nil(t, cmd.Stdout)
+		require.Nil(t, cmd.Stderr)
+		require.Nil(t, cmd.Stdin)
+		require.Equal(t, "https://auth.openai.com/example?state=test", cmd.Args[len(cmd.Args)-1])
+	}
+}
 
 func TestConnectMasksKeyAndIgnoresCancelledResult(t *testing.T) {
 	c := NewConnectCmp().(*connectCmp)

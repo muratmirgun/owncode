@@ -297,16 +297,17 @@ func (m *editorCmp) editorView() string {
 		Foreground(t.Primary()).Background(t.BackgroundSecondary())
 
 	if m.home && len(m.attachments) == 0 {
-		m.resizeTextarea(max(1, m.height-2))
-		return lipgloss.JoinVertical(lipgloss.Left, "", m.textarea.View(), m.throughputView())
-	}
-	m.resizeTextarea(max(1, m.height-1))
-	if len(m.attachments) == 0 {
-		return lipgloss.JoinVertical(lipgloss.Left, m.throughputView(), lipgloss.JoinHorizontal(lipgloss.Top, style.Render(">"), m.textarea.View()))
+		m.resizeTextarea(max(1, m.height-3))
+		return lipgloss.JoinVertical(lipgloss.Left, "", m.textarea.View(), "", m.throughputView())
 	}
 	m.resizeTextarea(max(1, m.height-2))
+	if len(m.attachments) == 0 {
+		return lipgloss.JoinVertical(lipgloss.Left, m.throughputView(), "", lipgloss.JoinHorizontal(lipgloss.Top, style.Render(">"), m.textarea.View()))
+	}
+	m.resizeTextarea(max(1, m.height-3))
 	return lipgloss.JoinVertical(lipgloss.Top,
 		m.throughputView(),
+		"",
 		m.attachmentsContent(),
 		lipgloss.JoinHorizontal(lipgloss.Top, style.Render(">"),
 			m.textarea.View()),
@@ -317,7 +318,7 @@ func (m *editorCmp) SetSize(width, height int) tea.Cmd {
 	m.width = width
 	m.height = height
 	m.textarea.SetWidth(max(1, width-2))
-	m.resizeTextarea(max(1, height-1))
+	m.resizeTextarea(max(1, height-2))
 	return nil
 }
 
@@ -405,7 +406,7 @@ func NewEditorCmp(app *app.App) util.Model {
 func (m *editorCmp) PreferredHeight(width int) int {
 	textWidth := max(1, width-3)
 	lines := strings.Count(ansi.Wrap(m.textarea.Value(), textWidth, ""), "\n") + 1
-	extra := 1 // Throughput row.
+	extra := 2 // Throughput row and separation from the draft.
 	if m.home {
 		extra++
 	}

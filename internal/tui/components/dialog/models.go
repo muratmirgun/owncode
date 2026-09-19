@@ -6,8 +6,10 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/llm/models"
 	"github.com/muratmirgun/owncode/internal/tui/layout"
@@ -16,271 +18,302 @@ import (
 	"github.com/muratmirgun/owncode/internal/tui/util"
 )
 
-const (
-	numVisibleModels = 10
-	maxDialogWidth   = 40
-)
+// ModelSelectedMsg requests a model change.
+type ModelSelectedMsg struct{ Model models.Model }
 
-// ModelSelectedMsg is sent when a model is selected
-type ModelSelectedMsg struct {
-	Model models.Model
-}
-
-// CloseModelDialogMsg is sent when a model is selected
+// CloseModelDialogMsg closes the model picker.
 type CloseModelDialogMsg struct{}
 
-// ModelDialog interface for the model selection dialog
+// ConnectModelProviderMsg opens provider setup from the picker.
+type ConnectModelProviderMsg struct{}
+
+// ModelDialog is the searchable model picker.
 type ModelDialog interface {
 	util.Model
 	layout.Bindings
 }
 
+type modelRow struct {
+	heading string
+	model   models.Model
+}
 type modelDialogCmp struct {
-	models             []models.Model
-	provider           models.ModelProvider
-	availableProviders []models.ModelProvider
-
-	selectedIdx     int
-	width           int
-	height          int
-	scrollOffset    int
-	hScrollOffset   int
-	hScrollPossible bool
+	catalog                                  []models.Model
+	rows                                     []modelRow
+	active                                   models.ModelID
+	prefs                                    modelPreferences
+	search                                   textinput.Model
+	selectedIdx, scrollOffset, width, height int
 }
 
-type modelKeyMap struct {
-	Up     key.Binding
-	Down   key.Binding
-	Left   key.Binding
-	Right  key.Binding
-	Enter  key.Binding
-	Escape key.Binding
-	J      key.Binding
-	K      key.Binding
-	H      key.Binding
-	L      key.Binding
-}
-
-var modelKeys = modelKeyMap{
-	Up: key.NewBinding(
-		key.WithKeys("up"),
-		key.WithHelp("↑", "previous model"),
-	),
-	Down: key.NewBinding(
-		key.WithKeys("down"),
-		key.WithHelp("↓", "next model"),
-	),
-	Left: key.NewBinding(
-		key.WithKeys("left"),
-		key.WithHelp("←", "scroll left"),
-	),
-	Right: key.NewBinding(
-		key.WithKeys("right"),
-		key.WithHelp("→", "scroll right"),
-	),
-	Enter: key.NewBinding(
-		key.WithKeys("enter"),
-		key.WithHelp("enter", "select model"),
-	),
-	Escape: key.NewBinding(
-		key.WithKeys("esc"),
-		key.WithHelp("esc", "close"),
-	),
-	J: key.NewBinding(
-		key.WithKeys("j"),
-		key.WithHelp("j", "next model"),
-	),
-	K: key.NewBinding(
-		key.WithKeys("k"),
-		key.WithHelp("k", "previous model"),
-	),
-	H: key.NewBinding(
-		key.WithKeys("h"),
-		key.WithHelp("h", "scroll left"),
-	),
-	L: key.NewBinding(
-		key.WithKeys("l"),
-		key.WithHelp("l", "scroll right"),
-	),
+func NewModelDialogCmp() ModelDialog {
+	search := textinput.New()
+	search.Placeholder = "Search models or providers"
+	search.Prompt = ""
+	search.CharLimit = 200
+	search.SetWidth(80)
+	search.Focus()
+	return &modelDialogCmp{search: search, width: 90, height: 32}
 }
 
 func (m *modelDialogCmp) Init() tea.Cmd {
-	m.setupModels()
+	cfg := config.Get()
+	m.active = GetSelectedModel(cfg).ID
+	m.catalog = nil
+	for _, model := range models.SupportedModels {
+		provider, ok := cfg.Providers[model.Provider]
+		if ok && !provider.Disabled {
+			m.catalog = append(m.catalog, model)
+		}
+	}
+	slices.SortFunc(m.catalog, func(a, b models.Model) int {
+		if a.Provider != b.Provider {
+			return strings.Compare(providerLabel(a.Provider), providerLabel(b.Provider))
+		}
+		if a.Name != b.Name {
+			return strings.Compare(b.Name, a.Name)
+		}
+		return strings.Compare(string(a.ID), string(b.ID))
+	})
+	var err error
+	m.prefs, err = loadModelPreferences()
+	m.rebuild(m.active)
+	if err != nil {
+		return util.ReportWarn("Could not load model preferences: " + err.Error())
+	}
 	return nil
 }
 
+func (m *modelDialogCmp) rebuild(preferred models.ModelID) {
+	m.rows = nil
+	seen := make(map[models.ModelID]bool)
+	matches := func(model models.Model) bool {
+		text := strings.ToLower(model.Name + " " + string(model.ID) + " " + providerLabel(model.Provider))
+		for _, word := range strings.Fields(strings.ToLower(m.search.Value())) {
+			if !strings.Contains(text, word) {
+				return false
+			}
+		}
+		return true
+	}
+	add := func(heading string, ids []models.ModelID) {
+		added := false
+		for _, id := range ids {
+			for _, model := range m.catalog {
+				if model.ID != id || seen[id] || !matches(model) {
+					continue
+				}
+				if !added {
+					m.rows = append(m.rows, modelRow{heading: heading})
+					added = true
+				}
+				m.rows = append(m.rows, modelRow{model: model})
+				seen[id] = true
+			}
+		}
+	}
+	add("Favorites", m.prefs.Favorites)
+	recent := append([]models.ModelID{m.active}, m.prefs.Recent...)
+	add("Recent", recent)
+	lastGroup := ""
+	for _, model := range m.catalog {
+		if seen[model.ID] || !matches(model) {
+			continue
+		}
+		heading := providerLabel(model.Provider)
+		if lastGroup != heading {
+			lastGroup = heading
+			m.rows = append(m.rows, modelRow{heading: heading})
+		}
+		m.rows = append(m.rows, modelRow{model: model})
+		seen[model.ID] = true
+	}
+	m.selectedIdx = -1
+	for i, row := range m.rows {
+		if row.heading != "" {
+			continue
+		}
+		if m.selectedIdx < 0 || row.model.ID == preferred {
+			m.selectedIdx = i
+		}
+		if row.model.ID == preferred {
+			break
+		}
+	}
+	m.scrollOffset = 0
+	m.ensureVisible()
+}
+
+func (m *modelDialogCmp) listHeight() int { return max(1, min(23, m.height-9)) }
+func (m *modelDialogCmp) ensureVisible() {
+	if m.selectedIdx < m.scrollOffset {
+		m.scrollOffset = max(0, m.selectedIdx)
+	}
+	if m.selectedIdx >= m.scrollOffset+m.listHeight() {
+		m.scrollOffset = m.selectedIdx - m.listHeight() + 1
+	}
+	m.scrollOffset = min(m.scrollOffset, max(0, len(m.rows)-m.listHeight()))
+}
+func (m *modelDialogCmp) move(delta int) {
+	if len(m.rows) == 0 {
+		return
+	}
+	for range len(m.rows) {
+		m.selectedIdx = (m.selectedIdx + delta + len(m.rows)) % len(m.rows)
+		if m.rows[m.selectedIdx].heading == "" {
+			break
+		}
+	}
+	m.ensureVisible()
+}
 func (m *modelDialogCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyPressMsg:
-		if len(m.models) == 0 && !key.Matches(msg, modelKeys.Escape) {
-			return m, util.ReportWarn("No models available. Configure a provider and restart OwnCode.")
-		}
-		switch {
-		case key.Matches(msg, modelKeys.Up) || key.Matches(msg, modelKeys.K):
-			m.moveSelectionUp()
-		case key.Matches(msg, modelKeys.Down) || key.Matches(msg, modelKeys.J):
-			m.moveSelectionDown()
-		case key.Matches(msg, modelKeys.Left) || key.Matches(msg, modelKeys.H):
-			if m.hScrollPossible {
-				m.switchProvider(-1)
-			}
-		case key.Matches(msg, modelKeys.Right) || key.Matches(msg, modelKeys.L):
-			if m.hScrollPossible {
-				m.switchProvider(1)
-			}
-		case key.Matches(msg, modelKeys.Enter):
-			util.ReportInfo(fmt.Sprintf("selected model: %s", m.models[m.selectedIdx].Name))
-			return m, util.CmdHandler(ModelSelectedMsg{Model: m.models[m.selectedIdx]})
-		case key.Matches(msg, modelKeys.Escape):
-			return m, util.CmdHandler(CloseModelDialogMsg{})
-		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.search.SetWidth(max(1, min(86, m.width-6)))
+		m.ensureVisible()
+		return m, nil
+	case tea.KeyPressMsg:
+		switch msg.String() {
+		case "esc", "ctrl+o", "f2":
+			return m, util.CmdHandler(CloseModelDialogMsg{})
+		case "ctrl+a", "f5":
+			return m, util.CmdHandler(ConnectModelProviderMsg{})
+		case "up", "ctrl+p":
+			m.move(-1)
+			return m, nil
+		case "down", "ctrl+n":
+			m.move(1)
+			return m, nil
+		case "pgup", "pgdown":
+			delta := 1
+			if msg.String() == "pgup" {
+				delta = -1
+			}
+			for range m.listHeight() {
+				m.move(delta)
+			}
+			return m, nil
+		case "enter":
+			if m.selectedIdx >= 0 && m.selectedIdx < len(m.rows) && m.rows[m.selectedIdx].heading == "" {
+				return m, util.CmdHandler(ModelSelectedMsg{Model: m.rows[m.selectedIdx].model})
+			}
+			return m, nil
+		case "ctrl+f", "f6":
+			if m.selectedIdx < 0 || m.selectedIdx >= len(m.rows) {
+				return m, nil
+			}
+			id := m.rows[m.selectedIdx].model.ID
+			next := m.prefs
+			next.Favorites = slices.Clone(m.prefs.Favorites)
+			if i := slices.Index(next.Favorites, id); i >= 0 {
+				next.Favorites = slices.Delete(next.Favorites, i, i+1)
+			} else {
+				next.Favorites = append(next.Favorites, id)
+			}
+			if err := saveModelPreferences(next); err != nil {
+				return m, util.ReportError(err)
+			}
+			m.prefs = next
+			m.rebuild(id)
+			return m, nil
+		}
 	}
-
-	return m, nil
-}
-
-// moveSelectionUp moves the selection up or wraps to bottom
-func (m *modelDialogCmp) moveSelectionUp() {
-	if m.selectedIdx > 0 {
-		m.selectedIdx--
-	} else {
-		m.selectedIdx = len(m.models) - 1
-		m.scrollOffset = max(0, len(m.models)-numVisibleModels)
+	before := m.search.Value()
+	var cmd tea.Cmd
+	m.search, cmd = m.search.Update(msg)
+	if before != m.search.Value() {
+		m.rebuild("")
 	}
-
-	// Keep selection visible
-	if m.selectedIdx < m.scrollOffset {
-		m.scrollOffset = m.selectedIdx
-	}
-}
-
-// moveSelectionDown moves the selection down or wraps to top
-func (m *modelDialogCmp) moveSelectionDown() {
-	if m.selectedIdx < len(m.models)-1 {
-		m.selectedIdx++
-	} else {
-		m.selectedIdx = 0
-		m.scrollOffset = 0
-	}
-
-	// Keep selection visible
-	if m.selectedIdx >= m.scrollOffset+numVisibleModels {
-		m.scrollOffset = m.selectedIdx - (numVisibleModels - 1)
-	}
-}
-
-func (m *modelDialogCmp) switchProvider(offset int) {
-	newOffset := m.hScrollOffset + offset
-
-	// Ensure we stay within bounds
-	if newOffset < 0 {
-		newOffset = len(m.availableProviders) - 1
-	}
-	if newOffset >= len(m.availableProviders) {
-		newOffset = 0
-	}
-
-	m.hScrollOffset = newOffset
-	m.provider = m.availableProviders[m.hScrollOffset]
-	m.setupModelsForProvider(m.provider)
+	return m, cmd
 }
 
 func (m *modelDialogCmp) View() string {
 	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
-
-	// Capitalize first letter of provider name
-	providerName := strings.ToUpper(string(m.provider)[:1]) + string(m.provider[1:])
-	title := baseStyle.
-		Foreground(t.Primary()).
-		Bold(true).
-		Width(maxDialogWidth).
-		Padding(0, 0, 1).
-		Render(fmt.Sprintf("Select %s Model", providerName))
-
-	// Render visible models
-	endIdx := min(m.scrollOffset+numVisibleModels, len(m.models))
-	modelItems := make([]string, 0, endIdx-m.scrollOffset)
-
-	for i := m.scrollOffset; i < endIdx; i++ {
-		itemStyle := baseStyle.Width(maxDialogWidth)
+	width := max(1, min(90, m.width-2))
+	inner := max(1, width-4)
+	base := lipgloss.NewStyle().Background(t.BackgroundSecondary()).Foreground(t.Text())
+	muted := base.Foreground(t.TextMuted())
+	inputStyles := m.search.Styles()
+	inputStyles.Focused.Text = base
+	inputStyles.Focused.Placeholder = muted
+	inputStyles.Focused.Prompt = base
+	m.search.SetStyles(inputStyles)
+	line := func(s string) string { return base.Width(inner).Render(ansi.Truncate(s, inner, "…")) }
+	title := base.Bold(true).Render("Select model")
+	title += strings.Repeat(" ", max(1, inner-lipgloss.Width(title)-3)) + muted.Render("esc")
+	lines := []string{line(title), line(""), line(m.search.View()), line("")}
+	end := min(len(m.rows), m.scrollOffset+m.listHeight())
+	for i := m.scrollOffset; i < end; i++ {
+		row := m.rows[i]
+		if row.heading != "" {
+			lines = append(lines, line(base.Foreground(t.Primary()).Bold(true).Render("  "+row.heading)))
+			continue
+		}
+		marker := "  "
+		if row.model.ID == m.active {
+			marker = "● "
+		}
+		star := ""
+		if slices.Contains(m.prefs.Favorites, row.model.ID) {
+			star = " ★"
+		}
+		name := marker + row.model.Name + star
+		provider := "  " + providerLabel(row.model.Provider)
 		if i == m.selectedIdx {
-			itemStyle = itemStyle.Background(t.Primary()).
-				Foreground(t.Background()).Bold(true)
-		}
-		modelItems = append(modelItems, itemStyle.Render(m.models[i].Name))
-	}
-
-	scrollIndicator := m.getScrollIndicators(maxDialogWidth)
-
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		baseStyle.Width(maxDialogWidth).Render(lipgloss.JoinVertical(lipgloss.Left, modelItems...)),
-		scrollIndicator,
-	)
-
-	return baseStyle.Padding(1, 2).
-		Border(lipgloss.RoundedBorder()).
-		BorderBackground(t.Background()).
-		BorderForeground(t.TextMuted()).
-		Width(lipgloss.Width(content) + 4).
-		Render(content)
-}
-
-func (m *modelDialogCmp) getScrollIndicators(maxWidth int) string {
-	var indicator string
-
-	if len(m.models) > numVisibleModels {
-		if m.scrollOffset > 0 {
-			indicator += "↑ "
-		}
-		if m.scrollOffset+numVisibleModels < len(m.models) {
-			indicator += "↓ "
+			lines = append(lines, base.Background(t.Primary()).Foreground(t.Background()).Bold(true).Width(inner).Render(ansi.Truncate(name+provider, inner, "…")))
+		} else {
+			lines = append(lines, line(base.Render(name)+muted.Render(provider)))
 		}
 	}
-
-	if m.hScrollPossible {
-		if m.hScrollOffset > 0 {
-			indicator = "← " + indicator
+	if len(m.rows) == 0 {
+		label := "No matching models"
+		if len(m.catalog) == 0 {
+			label = "No models connected · ctrl+a to connect"
 		}
-		if m.hScrollOffset < len(m.availableProviders)-1 {
-			indicator += "→"
-		}
+		lines = append(lines, line(muted.Render(label)))
 	}
-
-	if indicator == "" {
-		return ""
+	for len(lines) < 4+m.listHeight() {
+		lines = append(lines, line(""))
 	}
-
-	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
-
-	return baseStyle.
-		Foreground(t.Primary()).
-		Width(maxWidth).
-		Align(lipgloss.Right).
-		Bold(true).
-		Render(indicator)
+	position := ""
+	if len(m.rows) > m.listHeight() {
+		position = fmt.Sprintf(" · %d/%d", m.scrollOffset+1, len(m.rows))
+	}
+	lines = append(lines, line(""), line(muted.Render("↑↓ select · enter confirm"+position)), line(base.Render("Connect provider ")+muted.Render("F5")+base.Render("  Favorite ")+muted.Render("F6")))
+	view := base.Width(width).Padding(1, 2).Render(strings.Join(lines, "\n"))
+	view = styles.Surface(view, t.BackgroundSecondary())
+	// Keep even very small terminals within their available canvas.
+	return lipgloss.NewStyle().MaxWidth(max(1, m.width)).MaxHeight(max(1, m.height)).Render(view)
 }
 
 func (m *modelDialogCmp) BindingKeys() []key.Binding {
-	return layout.KeyMapToSlice(modelKeys)
+	return []key.Binding{
+		key.NewBinding(key.WithKeys("ctrl+a", "f5"), key.WithHelp("f5 / ctrl+a", "connect provider")),
+		key.NewBinding(key.WithKeys("ctrl+f", "f6"), key.WithHelp("f6 / ctrl+f", "favorite")),
+		key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close")),
+	}
 }
 
-func (m *modelDialogCmp) setupModels() {
-	cfg := config.Get()
-	modelInfo := GetSelectedModel(cfg)
-	m.availableProviders = getEnabledProviders(cfg)
-	m.hScrollPossible = len(m.availableProviders) > 1
-
-	m.provider = modelInfo.Provider
-	m.hScrollOffset = findProviderIndex(m.availableProviders, m.provider)
-
-	m.setupModelsForProvider(m.provider)
+func providerLabel(provider models.ModelProvider) string {
+	switch provider {
+	case "chatgpt":
+		return "OpenAI · ChatGPT"
+	case "openai":
+		return "OpenAI"
+	case "anthropic":
+		return "Claude"
+	case "openrouter":
+		return "OpenRouter"
+	case "xai":
+		return "xAI"
+	}
+	name := []rune(string(provider))
+	if len(name) == 0 {
+		return "Unknown"
+	}
+	return strings.ToUpper(string(name[:1])) + string(name[1:])
 }
 
 func GetSelectedModel(cfg *config.Config) models.Model {
@@ -288,89 +321,4 @@ func GetSelectedModel(cfg *config.Config) models.Model {
 	agentCfg := cfg.Agents[config.AgentCoder]
 	selectedModelId := agentCfg.Model
 	return models.SupportedModels[selectedModelId]
-}
-
-func getEnabledProviders(cfg *config.Config) []models.ModelProvider {
-	var providers []models.ModelProvider
-	for providerId, provider := range cfg.Providers {
-		if !provider.Disabled {
-			providers = append(providers, providerId)
-		}
-	}
-
-	// Sort by provider popularity
-	slices.SortFunc(providers, func(a, b models.ModelProvider) int {
-		rA := models.ProviderPopularity[a]
-		rB := models.ProviderPopularity[b]
-
-		// models not included in popularity ranking default to last
-		if rA == 0 {
-			rA = 999
-		}
-		if rB == 0 {
-			rB = 999
-		}
-		return rA - rB
-	})
-	return providers
-}
-
-// findProviderIndex returns the index of the provider in the list, or -1 if not found
-func findProviderIndex(providers []models.ModelProvider, provider models.ModelProvider) int {
-	for i, p := range providers {
-		if p == provider {
-			return i
-		}
-	}
-	return -1
-}
-
-func (m *modelDialogCmp) setupModelsForProvider(provider models.ModelProvider) {
-	cfg := config.Get()
-	agentCfg := cfg.Agents[config.AgentCoder]
-	selectedModelId := agentCfg.Model
-
-	m.provider = provider
-	m.models = getModelsForProvider(provider)
-	m.selectedIdx = 0
-	m.scrollOffset = 0
-
-	// Try to select the current model if it belongs to this provider
-	if provider == models.SupportedModels[selectedModelId].Provider {
-		for i, model := range m.models {
-			if model.ID == selectedModelId {
-				m.selectedIdx = i
-				// Adjust scroll position to keep selected model visible
-				if m.selectedIdx >= numVisibleModels {
-					m.scrollOffset = m.selectedIdx - (numVisibleModels - 1)
-				}
-				break
-			}
-		}
-	}
-}
-
-func getModelsForProvider(provider models.ModelProvider) []models.Model {
-	var providerModels []models.Model
-	for _, model := range models.SupportedModels {
-		if model.Provider == provider {
-			providerModels = append(providerModels, model)
-		}
-	}
-
-	// reverse alphabetical order (if llm naming was consistent latest would appear first)
-	slices.SortFunc(providerModels, func(a, b models.Model) int {
-		if a.Name > b.Name {
-			return -1
-		} else if a.Name < b.Name {
-			return 1
-		}
-		return 0
-	})
-
-	return providerModels
-}
-
-func NewModelDialogCmp() ModelDialog {
-	return &modelDialogCmp{}
 }

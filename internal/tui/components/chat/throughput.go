@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/message"
 	"github.com/muratmirgun/owncode/internal/tui/styles"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
@@ -137,6 +138,11 @@ func (m *editorCmp) throughputView() string {
 		name = fields[0]
 	}
 	name = ansi.Truncate(name, max(4, m.width/3), "…")
+	if cfg := config.Get(); cfg != nil {
+		if effort := model.ReasoningLevel(cfg.Agents[config.AgentCoder].ReasoningEffort); effort != "" {
+			name += " · " + effort
+		}
+	}
 	parts := []string{name, "— TPS"}
 	if s := m.throughput[m.session.ID]; s != nil {
 		if s.tokens > 0 {

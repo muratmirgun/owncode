@@ -20,10 +20,11 @@ import (
 )
 
 type anthropicOptions struct {
-	baseURL      string
-	useBedrock   bool
-	disableCache bool
-	shouldThink  func(userMessage string) bool
+	reasoningMode string
+	baseURL       string
+	useBedrock    bool
+	disableCache  bool
+	shouldThink   func(userMessage string) bool
 }
 
 type AnthropicOption func(*anthropicOptions)
@@ -175,10 +176,11 @@ func (a *anthropicClient) preparedMessages(messages []anthropic.MessageParam, to
 				messageContent = m.OfText.Text
 			}
 		}
-		if messageContent != "" && a.options.shouldThink != nil && a.options.shouldThink(messageContent) {
-			thinkingParam = anthropic.ThinkingConfigParamOfEnabled(int64(float64(a.providerOptions.maxTokens) * 0.8))
-			temperature = anthropic.Float(1)
-		}
+	}
+	think := a.options.reasoningMode == "on" || (a.options.reasoningMode != "off" && messageContent != "" && a.options.shouldThink != nil && a.options.shouldThink(messageContent))
+	if think && a.providerOptions.maxTokens > 1024 {
+		thinkingParam = anthropic.ThinkingConfigParamOfEnabled(max(int64(1024), int64(float64(a.providerOptions.maxTokens)*0.8)))
+		temperature = anthropic.Float(1)
 	}
 
 	return anthropic.MessageNewParams{
@@ -467,6 +469,11 @@ func WithAnthropicDisableCache() AnthropicOption {
 
 func DefaultShouldThinkFn(s string) bool {
 	return strings.Contains(strings.ToLower(s), "think")
+}
+
+// WithAnthropicReasoning selects automatic, enabled, or disabled extended thinking.
+func WithAnthropicReasoning(mode string) AnthropicOption {
+	return func(options *anthropicOptions) { options.reasoningMode = mode }
 }
 
 func WithAnthropicShouldThinkFn(fn func(string) bool) AnthropicOption {

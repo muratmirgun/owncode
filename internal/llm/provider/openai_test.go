@@ -129,7 +129,7 @@ func TestCompatibleProviderEmptyStream(t *testing.T) {
 
 func TestNativeOpenAIReasoningParams(t *testing.T) {
 	t.Parallel()
-	client := &openaiClient{providerOptions: providerClientOptions{model: models.Model{APIModel: "o3", CanReason: true}, maxTokens: 4096}}
+	client := &openaiClient{providerOptions: providerClientOptions{model: models.Model{Provider: models.ProviderOpenAI, APIModel: "o3", CanReason: true}, maxTokens: 4096}}
 	data, err := json.Marshal(client.preparedParams(nil, nil))
 	require.NoError(t, err)
 	var body map[string]any

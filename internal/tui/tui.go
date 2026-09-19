@@ -35,6 +35,7 @@ type keyMap struct {
 	Filepicker    key.Binding
 	Models        key.Binding
 	SwitchTheme   key.Binding
+	Reasoning     key.Binding
 }
 
 type startCompactSessionMsg struct{}
@@ -44,6 +45,7 @@ const (
 )
 
 var keys = keyMap{
+	Reasoning: key.NewBinding(key.WithKeys("alt+r", "f4"), key.WithHelp("f4 / alt+r", "cycle reasoning")),
 	Logs: key.NewBinding(
 		key.WithKeys("ctrl+l"),
 		key.WithHelp("ctrl+l", "logs"),
@@ -59,8 +61,8 @@ var keys = keyMap{
 	),
 
 	SwitchSession: key.NewBinding(
-		key.WithKeys("ctrl+s"),
-		key.WithHelp("ctrl+s", "switch session"),
+		key.WithKeys("ctrl+s", "f3"),
+		key.WithHelp("f3 / ctrl+s", "switch session"),
 	),
 
 	Commands: key.NewBinding(
@@ -72,8 +74,8 @@ var keys = keyMap{
 		key.WithHelp("ctrl+f", "select files to upload"),
 	),
 	Models: key.NewBinding(
-		key.WithKeys("ctrl+o"),
-		key.WithHelp("ctrl+o", "model selection"),
+		key.WithKeys("ctrl+o", "f2"),
+		key.WithHelp("f2 / ctrl+o", "model selection"),
 	),
 
 	SwitchTheme: key.NewBinding(
@@ -205,6 +207,11 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if isInputMessage(msg) {
 			return a, tea.Batch(cmds...)
 		}
+	}
+	if a.showModelDialog && !a.showQuit && !a.showPermissions && isInputMessage(msg) {
+		updated, cmd := a.modelDialog.Update(msg)
+		a.modelDialog = updated.(dialog.ModelDialog)
+		return a, cmd
 	}
 	if a.isCompacting && isInputMessage(msg) {
 		if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "esc" {
@@ -431,6 +438,10 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.showThemeDialog = false
 		return a, tea.Batch(cmd, util.ReportInfo("Theme changed to: "+msg.ThemeName))
 
+	case dialog.ConnectModelProviderMsg:
+		a.showModelDialog = false
+		return a, util.CmdHandler(chat.SlashCommandMsg("connect"))
+
 	case dialog.CloseModelDialogMsg:
 		a.showModelDialog = false
 		return a, nil
@@ -443,6 +454,9 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, util.ReportError(err)
 		}
 
+		if err := dialog.RecordRecentModel(model.ID); err != nil {
+			return a, util.ReportWarn("Model changed, but recent models could not be saved: " + err.Error())
+		}
 		return a, util.ReportInfo(fmt.Sprintf("Model changed to %s", model.Name))
 
 	case dialog.ShowInitDialogMsg:
@@ -493,7 +507,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.selectedSession = session.Session{}
 			return a, util.CmdHandler(chat.SessionClearedMsg{})
 		case "models":
-			a.showModelDialog = true
+			return a, a.openModelDialog()
 		case "themes":
 			a.showThemeDialog = true
 			return a, a.themeDialog.Init()
@@ -504,6 +518,8 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, load
 		case "settings":
 			a.showSettings = true
+		case "reasoning":
+			return a, a.cycleReasoning()
 		case "connect":
 			if a.app.CoderAgent.IsBusy() {
 				return a, util.ReportWarn("Wait for active requests before connecting a provider")
@@ -643,8 +659,12 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 			if a.currentPage == page.ChatPage && !a.showQuit && !a.showPermissions && !a.showSessionDialog && !a.showCommandDialog {
-				a.showModelDialog = true
-				return a, nil
+				return a, a.openModelDialog()
+			}
+			return a, nil
+		case key.Matches(msg, keys.Reasoning):
+			if a.currentPage == page.ChatPage && !a.showQuit && !a.showPermissions && !a.showSessionDialog && !a.showCommandDialog && !a.showModelDialog && !a.showThemeDialog && !a.showFilepicker {
+				return a, a.cycleReasoning()
 			}
 			return a, nil
 		case key.Matches(msg, keys.SwitchTheme):
@@ -959,7 +979,7 @@ func (a appModel) render() string {
 			row,
 			overlay,
 			appView,
-			true,
+			false,
 		)
 	}
 
@@ -1020,6 +1040,20 @@ func (a appModel) render() string {
 	}
 
 	return appView
+}
+
+func (a appModel) cycleReasoning() tea.Cmd {
+	if a.app.CoderAgent.IsBusy() {
+		return util.ReportWarn("Wait for the current response before changing reasoning")
+	}
+	level, err := config.CycleReasoning()
+	if err != nil {
+		return util.ReportWarn(err.Error())
+	}
+	if err := a.app.CoderAgent.Reload(); err != nil {
+		return util.ReportError(err)
+	}
+	return util.ReportInfo("Reasoning · " + level + " · Alt+R to change")
 }
 
 func New(app *app.App) tea.Model {
@@ -1109,3 +1143,11 @@ func isInputMessage(msg tea.Msg) bool {
 }
 
 type compactStartFailedMsg struct{ err error }
+
+func (a *appModel) openModelDialog() tea.Cmd {
+	a.modelDialog = dialog.NewModelDialogCmp()
+	cmd := a.modelDialog.Init()
+	a.modelDialog.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+	a.showModelDialog = true
+	return cmd
+}

@@ -103,12 +103,7 @@
           "type": "string"
         },
         "reasoningEffort": {
-          "description": "Reasoning effort for models that support it (OpenAI, Anthropic)",
-          "enum": [
-            "low",
-            "medium",
-            "high"
-          ],
+          "description": "A reasoning level supported by the selected model, or on/off for compatible thinking models",
           "type": "string"
         }
       },
@@ -223,12 +218,7 @@
             "type": "string"
           },
           "reasoningEffort": {
-            "description": "Reasoning effort for models that support it (OpenAI, Anthropic)",
-            "enum": [
-              "low",
-              "medium",
-              "high"
-            ],
+            "description": "A reasoning level supported by the selected model, or on/off for compatible thinking models",
             "type": "string"
           }
         },
@@ -468,6 +458,9 @@
                   "minimum": 1,
                   "type": "integer"
                 },
+                "defaultReasoning": {
+                  "type": "string"
+                },
                 "interleaved": {
                   "enum": [
                     "reasoning_content"
@@ -485,6 +478,12 @@
                 },
                 "reasoning": {
                   "type": "boolean"
+                },
+                "reasoningLevels": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
                 }
               },
               "required": [

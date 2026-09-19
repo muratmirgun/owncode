@@ -14,6 +14,9 @@ import (
 
 var refreshMu sync.Mutex
 
+// Request the full catalog, as Crush does, without an old Codex version filter.
+const catalogClientVersion = "999.0.0"
+
 // Transport adds current ChatGPT credentials only to the fixed Codex endpoint.
 type Transport struct{ Base http.RoundTripper }
 
@@ -89,7 +92,7 @@ func Discover(ctx context.Context, id string, connection Connection) ([]Model, e
 func discover(ctx context.Context, client *http.Client, id string, c Connection) ([]Model, error) {
 	endpoint := "https://api.anthropic.com/v1/models?limit=100"
 	if id == ChatGPT {
-		endpoint = CodexURL + "models?client_version=0.114.0"
+		endpoint = CodexURL + "models?client_version=" + catalogClientVersion
 	}
 	if id != ChatGPT && id != Claude {
 		return nil, fmt.Errorf("unsupported provider")
@@ -116,6 +119,10 @@ func discover(ctx context.Context, client *http.Client, id string, c Connection)
 		}
 		var catalog struct {
 			Models []struct {
+				DefaultReasoning string `json:"default_reasoning_level"`
+				ReasoningLevels  []struct {
+					Effort string `json:"effort"`
+				} `json:"supported_reasoning_levels"`
 				ID         string `json:"slug"`
 				Name       string `json:"display_name"`
 				Visibility string `json:"visibility"`
@@ -145,7 +152,16 @@ func discover(ctx context.Context, client *http.Client, id string, c Connection)
 				if window <= 0 {
 					window = 200000
 				}
-				result = append(result, Model{ID: m.ID, Name: m.Name, Context: window, Output: min(16384, window)})
+				var levels []string
+				for _, level := range m.ReasoningLevels {
+					if level.Effort != "" {
+						levels = append(levels, level.Effort)
+					}
+				}
+				result = append(result, Model{ID: m.ID, Name: m.Name, Context: window, Output: min(16384, window), ReasoningLevels: levels, DefaultReasoning: m.DefaultReasoning})
+			}
+			if len(result) == 0 {
+				return nil, fmt.Errorf("Codex returned %d catalog entries, but none were selectable; retry the model list or sign in with another account", len(catalog.Models))
 			}
 			break
 		}

@@ -9,13 +9,15 @@ import (
 
 // CustomModel describes an OpenAI-compatible model or a model under the anthropic provider.
 type CustomModel struct {
-	Name          string         `json:"name"`
-	ContextWindow int64          `json:"contextWindow"`
-	MaxTokens     int64          `json:"maxTokens"`
-	Reasoning     bool           `json:"reasoning"`
-	Attachments   bool           `json:"attachments"`
-	Interleaved   string         `json:"interleaved,omitempty"`
-	Options       map[string]any `json:"options,omitempty"`
+	ReasoningLevels  []string       `json:"reasoningLevels,omitempty"`
+	DefaultReasoning string         `json:"defaultReasoning,omitempty"`
+	Name             string         `json:"name"`
+	ContextWindow    int64          `json:"contextWindow"`
+	MaxTokens        int64          `json:"maxTokens"`
+	Reasoning        bool           `json:"reasoning"`
+	Attachments      bool           `json:"attachments"`
+	Interleaved      string         `json:"interleaved,omitempty"`
+	Options          map[string]any `json:"options,omitempty"`
 }
 
 // Register only during startup, before agents read the model catalog.
@@ -43,7 +45,7 @@ func registerCustomModels(c *Config) error {
 			pending[id] = models.Model{
 				ID: id, Name: model.Name, Provider: providerID, APIModel: name,
 				ContextWindow: model.ContextWindow, DefaultMaxTokens: model.MaxTokens,
-				CanReason: model.Reasoning, SupportsAttachments: model.Attachments,
+				CanReason: model.Reasoning || len(model.ReasoningLevels) > 0, ReasoningLevels: model.ReasoningLevels, DefaultReasoning: model.DefaultReasoning, SupportsAttachments: model.Attachments,
 				Custom: true, ReasoningField: model.Interleaved, Options: model.Options,
 			}
 		}

@@ -27,7 +27,7 @@ func connectionProvider(id string, c auth.Connection) Provider {
 		if id == auth.ChatGPT {
 			options["native_compaction"] = true
 		}
-		p.Models[m.ID] = CustomModel{Name: m.Name, ContextWindow: m.Context, MaxTokens: m.Output, Attachments: true, Options: options}
+		p.Models[m.ID] = CustomModel{Name: m.Name, ContextWindow: m.Context, MaxTokens: m.Output, Attachments: true, Options: options, ReasoningLevels: m.ReasoningLevels, DefaultReasoning: m.DefaultReasoning, Reasoning: len(m.ReasoningLevels) > 0}
 	}
 	return p
 }
@@ -74,7 +74,7 @@ func RegisterConnection(id string, c auth.Connection) error {
 	for _, m := range c.Models {
 		modelID := models.ModelID(id + "/" + m.ID)
 		models.SupportedModels[modelID] = models.Model{ID: modelID, APIModel: m.ID, Name: m.Name, Provider: models.ModelProvider(id), Custom: true,
-			ContextWindow: m.Context, DefaultMaxTokens: m.Output, SupportsAttachments: true, Options: p.Models[m.ID].Options}
+			ContextWindow: m.Context, DefaultMaxTokens: m.Output, SupportsAttachments: true, Options: p.Models[m.ID].Options, CanReason: len(m.ReasoningLevels) > 0, ReasoningLevels: m.ReasoningLevels, DefaultReasoning: m.DefaultReasoning}
 	}
 	return nil
 }
@@ -90,8 +90,12 @@ func SelectConnectedModel(id models.ModelID) error {
 		next = map[AgentName]Agent{}
 	}
 	for _, role := range []AgentName{AgentCoder, AgentTitle, AgentTask, AgentSummarizer} {
-		next[role] = Agent{Model: id, MaxTokens: model.DefaultMaxTokens, ReasoningEffort: "medium"}
+		next[role] = Agent{Model: id, MaxTokens: model.DefaultMaxTokens, ReasoningEffort: model.ReasoningLevel("")}
 	}
+	return saveAgents(next)
+}
+
+func saveAgents(next map[AgentName]Agent) error {
 	path := viper.ConfigFileUsed()
 	if path == "" {
 		home, err := os.UserHomeDir()
@@ -137,4 +141,32 @@ func SelectConnectedModel(id models.ModelID) error {
 	viper.SetConfigFile(path)
 	cfg.Agents = next
 	return nil
+}
+
+// CycleReasoning saves the next supported level for the coding agent.
+func CycleReasoning() (string, error) {
+	if cfg == nil {
+		return "", fmt.Errorf("config not loaded")
+	}
+	settings := cfg.Agents[AgentCoder]
+	model := models.SupportedModels[settings.Model]
+	choices := model.ReasoningChoices()
+	if len(choices) == 0 {
+		return "", fmt.Errorf("this model has no configurable reasoning levels; reconnect ChatGPT to refresh its model catalog")
+	}
+	current := model.ReasoningLevel(settings.ReasoningEffort)
+	index := 0
+	for i, level := range choices {
+		if level == current {
+			index = (i + 1) % len(choices)
+			break
+		}
+	}
+	settings.ReasoningEffort = choices[index]
+	next := maps.Clone(cfg.Agents)
+	next[AgentCoder] = settings
+	if err := saveAgents(next); err != nil {
+		return "", err
+	}
+	return settings.ReasoningEffort, nil
 }
