@@ -22,7 +22,7 @@ go.work
 .vscode/
 *.swp
 *.swo
-
+/docs/
 # OS specific files
 .DS_Store
 .DS_Store?

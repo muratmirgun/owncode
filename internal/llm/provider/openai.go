@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net/http"
 	"time"
 
+	"github.com/muratmirgun/owncode/internal/auth"
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/llm/models"
 	"github.com/muratmirgun/owncode/internal/llm/tools"
@@ -20,6 +22,7 @@ import (
 )
 
 type openaiOptions struct {
+	chatGPT         bool
 	baseURL         string
 	disableCache    bool
 	reasoningEffort string
@@ -56,6 +59,11 @@ func newOpenAIClient(opts providerClientOptions) OpenAIClient {
 		for key, value := range openaiOpts.extraHeaders {
 			openaiClientOptions = append(openaiClientOptions, option.WithHeader(key, value))
 		}
+	}
+	if openaiOpts.chatGPT {
+		openaiOpts.baseURL = auth.CodexURL
+		openaiClientOptions = append(openaiClientOptions, option.WithBaseURL(auth.CodexURL), option.WithAPIKey(""),
+			option.WithHTTPClient(&http.Client{Transport: &auth.Transport{}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}))
 	}
 
 	client := openai.NewClient(openaiClientOptions...)
@@ -190,11 +198,16 @@ func (o *openaiClient) preparedParams(messages []openai.ChatCompletionMessagePar
 		params.MaxTokens = openai.Int(o.providerOptions.maxTokens)
 	}
 
-	params.WithExtraFields(maps.Clone(o.providerOptions.model.Options))
+	extra := maps.Clone(o.providerOptions.model.Options)
+	delete(extra, "native_compaction")
+	params.WithExtraFields(extra)
 	return params
 }
 
 func (o *openaiClient) send(ctx context.Context, messages []message.Message, tools []tools.BaseTool) (response *ProviderResponse, err error) {
+	if o.options.chatGPT {
+		return o.nativeSend(ctx, messages, tools)
+	}
 	params := o.preparedParams(o.convertMessages(messages), o.convertTools(tools))
 	cfg := config.Get()
 	if cfg != nil && cfg.Debug {
@@ -251,6 +264,9 @@ func (o *openaiClient) send(ctx context.Context, messages []message.Message, too
 }
 
 func (o *openaiClient) stream(ctx context.Context, messages []message.Message, tools []tools.BaseTool) <-chan ProviderEvent {
+	if o.options.chatGPT {
+		return o.nativeStream(ctx, messages, tools)
+	}
 	params := o.preparedParams(o.convertMessages(messages), o.convertTools(tools))
 	params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
 		IncludeUsage: openai.Bool(true),
@@ -433,6 +449,11 @@ func (o *openaiClient) usage(completion openai.ChatCompletion) TokenUsage {
 		CacheCreationTokens: 0, // OpenAI doesn't provide this directly
 		CacheReadTokens:     cachedTokens,
 	}
+}
+
+// WithChatGPT uses saved login credentials and the Codex Responses endpoint.
+func WithChatGPT() OpenAIOption {
+	return func(options *openaiOptions) { options.chatGPT = true }
 }
 
 func WithOpenAIBaseURL(baseURL string) OpenAIOption {

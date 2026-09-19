@@ -21,10 +21,12 @@ type slashCommand struct{ name, description string }
 var slashCommands = []slashCommand{
 	{"new", "Start a new chat"},
 	{"settings", "Model and appearance settings"},
+	{"connect", "Connect OpenAI or Claude"},
 	{"models", "Choose a model"},
 	{"themes", "Choose a theme"},
 	{"sessions", "Open a previous chat"},
-	{"compact", "Summarize this chat"},
+	{"compact", "Compact using your saved preferences"},
+	{"agents", "Tasks, progress, and results"},
 	{"help", "Show keyboard shortcuts"},
 }
 

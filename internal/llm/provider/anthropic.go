@@ -20,6 +20,7 @@ import (
 )
 
 type anthropicOptions struct {
+	baseURL      string
 	useBedrock   bool
 	disableCache bool
 	shouldThink  func(userMessage string) bool
@@ -42,6 +43,9 @@ func newAnthropicClient(opts providerClientOptions) AnthropicClient {
 	}
 
 	anthropicClientOptions := []option.RequestOption{}
+	if anthropicOpts.baseURL != "" {
+		anthropicClientOptions = append(anthropicClientOptions, option.WithBaseURL(anthropicOpts.baseURL))
+	}
 	if opts.apiKey != "" {
 		anthropicClientOptions = append(anthropicClientOptions, option.WithAPIKey(opts.apiKey))
 	}
@@ -469,4 +473,9 @@ func WithAnthropicShouldThinkFn(fn func(string) bool) AnthropicOption {
 	return func(options *anthropicOptions) {
 		options.shouldThink = fn
 	}
+}
+
+// WithAnthropicBaseURL selects a custom endpoint for the Claude Messages API.
+func WithAnthropicBaseURL(baseURL string) AnthropicOption {
+	return func(options *anthropicOptions) { options.baseURL = baseURL }
 }

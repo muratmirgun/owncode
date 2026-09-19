@@ -7,7 +7,7 @@ import (
 	"github.com/muratmirgun/owncode/internal/llm/models"
 )
 
-// CustomModel describes a model served by an OpenAI-compatible endpoint.
+// CustomModel describes an OpenAI-compatible model or a model under the anthropic provider.
 type CustomModel struct {
 	Name          string         `json:"name"`
 	ContextWindow int64          `json:"contextWindow"`

@@ -52,6 +52,7 @@ type Agent struct {
 
 // Provider defines configuration for an LLM provider.
 type Provider struct {
+	Auth     string                 `json:"-"`
 	APIKey   string                 `json:"apiKey"`
 	Disabled bool                   `json:"disabled"`
 	BaseURL  string                 `json:"baseURL,omitempty"`
@@ -95,7 +96,8 @@ type Config struct {
 	ContextPaths []string                          `json:"contextPaths,omitempty"`
 	TUI          TUIConfig                         `json:"tui"`
 	Shell        ShellConfig                       `json:"shell,omitempty"`
-	AutoCompact  bool                              `json:"autoCompact,omitempty"`
+	Compaction   CompactionSettings                `json:"compaction,omitempty"`
+	AutoCompact  bool                              `json:"autoCompact"`
 }
 
 // Application constants
@@ -159,6 +161,9 @@ func Load(workingDir string, debug bool) (*Config, error) {
 		return cfg, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	if err := loadConnections(cfg); err != nil {
+		return cfg, err
+	}
 	if err := registerCustomModels(cfg); err != nil {
 		return cfg, err
 	}
@@ -535,7 +540,7 @@ func validateAgent(cfg *Config, name AgentName, agent Agent) error {
 			}
 			logging.Info("added provider from environment", "provider", provider)
 		}
-	} else if providerCfg.Disabled || providerCfg.APIKey == "" {
+	} else if providerCfg.Disabled || !providerCfg.HasCredentials() {
 		// Provider is disabled or has no API key
 		logging.Warn("provider is disabled or has no API key, reverting to default",
 			"agent", name,
@@ -637,7 +642,7 @@ func Validate() error {
 
 	// Validate providers
 	for provider, providerCfg := range cfg.Providers {
-		if providerCfg.APIKey == "" && !providerCfg.Disabled {
+		if !providerCfg.HasCredentials() && !providerCfg.Disabled {
 			fmt.Printf("provider has no API key, marking as disabled %s", provider)
 			logging.Warn("provider has no API key, marking as disabled", "provider", provider)
 			providerCfg.Disabled = true

@@ -251,6 +251,67 @@
       },
       "type": "object"
     },
+    "autoCompact": {
+      "default": true,
+      "description": "Compact automatically after a completed turn reaches the context threshold.",
+      "type": "boolean"
+    },
+    "compaction": {
+      "additionalProperties": false,
+      "properties": {
+        "focus": {
+          "description": "Additional instructions about information to retain in the summary.",
+          "type": "string"
+        },
+        "jev": {
+          "additionalProperties": false,
+          "properties": {
+            "apiKey": {
+              "description": "Required for Jev compaction. Keep in a private local config.",
+              "type": "string",
+              "writeOnly": true
+            },
+            "model": {
+              "default": "jev-latest",
+              "type": "string"
+            },
+            "targetTokens": {
+              "description": "Text token target. Default: 70% of the active text context.",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "method": {
+          "default": "summary",
+          "enum": [
+            "summary",
+            "shake",
+            "snapcompact",
+            "jev",
+            "native"
+          ],
+          "type": "string"
+        },
+        "mode": {
+          "default": "balanced",
+          "enum": [
+            "balanced",
+            "brief",
+            "handoff"
+          ],
+          "type": "string"
+        },
+        "threshold": {
+          "default": 95,
+          "maximum": 95,
+          "minimum": 50,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
     "contextPaths": {
       "default": [
         ".github/copilot-instructions.md",

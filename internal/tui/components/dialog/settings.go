@@ -27,6 +27,8 @@ type settingsCmp struct {
 	width, height int
 	tab, selected int
 	query         string
+	editingFocus  bool
+	focusDraft    string
 }
 
 var settingsTabs = []string{"Appearance", "Model", "Context", "Connections"}
@@ -58,12 +60,22 @@ func (s *settingsCmp) rows() []settingRow {
 			{"Limits", "Context window", fmt.Sprintf("%d tokens", model.ContextWindow), "Context capacity declared by the selected model. Read-only.", ""},
 		}
 	case 2:
+		jevStatus := "Missing · edit config"
+		if cfg.Compaction.Jev.APIKey != "" {
+			jevStatus = "Configured"
+		}
 		rows = []settingRow{
-			{"Compaction", "Auto compact", fmt.Sprint(cfg.AutoCompact), "Summarize near the context limit. Edit autoCompact in the config to change this value.", ""},
+			{"Compaction", "Method", cfg.Compaction.EffectiveMethod(), "Summary / shake / snapcompact / jev / native. Jev requires a config key; native requires provider support.", "compact-method"},
+			{"Compaction", "Jev key", jevStatus, "Set compaction.jev.apiKey in a private local config. The key is never displayed here.", ""},
+			{"Compaction", "Summary mode", cfg.Compaction.EffectiveMode(), "Balanced: coding context. Brief: essentials. Handoff: structured continuation notes.", "compact-mode"},
+			{"Compaction", "Keep in summary", cfg.Compaction.Focus, "Optional focus: paths, decisions, tests, or details to preserve. Enter to edit.", "compact-focus"},
+			{"Compaction", "Auto compact", fmt.Sprint(cfg.AutoCompact), "Automatically compact after a turn reaches the selected context threshold.", "compact-auto"},
+			{"Compaction", "Trigger at", fmt.Sprintf("%d%%", cfg.Compaction.EffectiveThreshold()), "Percentage of the model context window. Enter cycles 70 / 80 / 90 / 95.", "compact-threshold"},
 			{"Workspace", "Directory", cfg.WorkingDir, "Current project directory. Read-only.", ""},
 			{"Storage", "Data directory", cfg.Data.Directory, "Session storage location. Read-only.", ""},
 		}
 	case 3:
+		rows = append(rows, settingRow{"Providers", "Connect provider", "OpenAI / Claude", "Sign in with ChatGPT or add an Anthropic API key.", "connect"})
 		var names []string
 		for name := range cfg.MCPServers {
 			names = append(names, name)
@@ -94,6 +106,35 @@ func (s *settingsCmp) rows() []settingRow {
 }
 
 func (s *settingsCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
+	if s.editingFocus {
+		switch key := msg.(type) {
+		case tea.PasteMsg:
+			s.focusDraft += strings.Join(strings.Fields(key.Content), " ")
+		case tea.KeyPressMsg:
+			switch key.String() {
+			case "esc":
+				s.editingFocus = false
+			case "enter":
+				settings := config.Get().Compaction
+				settings.Focus = strings.TrimSpace(s.focusDraft)
+				if err := config.UpdateCompaction(settings, config.Get().AutoCompact); err != nil {
+					return s, util.ReportError(err)
+				}
+				s.editingFocus = false
+				return s, util.ReportInfo("Compaction focus saved")
+			case "backspace":
+				chars := []rune(s.focusDraft)
+				if len(chars) > 0 {
+					s.focusDraft = string(chars[:len(chars)-1])
+				}
+			default:
+				s.focusDraft += key.Text
+			}
+		}
+		if _, resizing := msg.(tea.WindowSizeMsg); !resizing {
+			return s, nil
+		}
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		s.width = msg.Width
@@ -125,7 +166,11 @@ func (s *settingsCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 			s.selected = min(max(0, len(rows)-1), s.selected+1)
 		case "enter", "space":
 			if len(rows) > 0 && rows[min(s.selected, len(rows)-1)].action != "" {
-				return s, util.CmdHandler(SettingsActionMsg(rows[min(s.selected, len(rows)-1)].action))
+				action := rows[min(s.selected, len(rows)-1)].action
+				if strings.HasPrefix(action, "compact-") {
+					return s, s.changeCompaction(action)
+				}
+				return s, util.CmdHandler(SettingsActionMsg(action))
 			}
 		case "backspace":
 			chars := []rune(s.query)
@@ -145,9 +190,9 @@ func (s *settingsCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 
 func (s *settingsCmp) View() string {
 	t := theme.CurrentTheme()
-	width := max(20, s.width-6)
-	height := max(12, s.height-4)
-	inner := width - 4
+	width := max(20, min(94, s.width-6))
+	height := max(12, min(s.height-4, len(s.rows())+13))
+	inner := width - 6
 	base := styles.BaseStyle().Background(t.BackgroundSecondary())
 	line := func(text string) string { return base.Width(inner).Render(ansi.Truncate(text, inner, "…")) }
 	title := base.Foreground(t.Text()).Bold(true).Render("Settings")
@@ -164,11 +209,14 @@ func (s *settingsCmp) View() string {
 		search = "Search: " + s.query
 	}
 	rows := s.rows()
-	visible := max(1, height-9)
+	visible := max(1, height-13)
 	start := max(0, s.selected-visible+1)
 	var body []string
 	for i := start; i < min(len(rows), start+visible); i++ {
 		row := rows[i]
+		if s.editingFocus && row.action == "compact-focus" {
+			row.value = s.focusDraft + "▏"
+		}
 		sectionWidth := min(18, inner/4)
 		labelWidth := min(24, inner/3)
 		left := base.Foreground(t.TextMuted()).Width(sectionWidth).Render(ansi.Truncate(row.section, sectionWidth, "…"))
@@ -196,6 +244,55 @@ func (s *settingsCmp) View() string {
 	if len(rows) > 0 {
 		description = rows[min(s.selected, len(rows)-1)].description
 	}
-	content := lipgloss.JoinVertical(lipgloss.Left, line(title), line(strings.Join(tabs, " ")), line(base.Foreground(t.TextMuted()).Render(search)), line(""), strings.Join(body, "\n"), line(""), line(base.Foreground(t.TextMuted()).Render(description)), line(""), line("←/→ tabs · ↑/↓ select · enter change · esc back"))
+	hint := "←/→ tabs · ↑/↓ select · enter change · esc back"
+	if s.editingFocus {
+		hint = "Type what to preserve · enter save · esc cancel"
+	}
+	content := lipgloss.JoinVertical(lipgloss.Left, line(title), line(strings.Join(tabs, " ")), line(base.Foreground(t.TextMuted()).Render(search)), line(""), strings.Join(body, "\n"), line(""), base.Height(2).Render(ansi.Wrap(description, inner, "")), line(""), line(hint))
 	return styles.Surface(base.Width(width).Padding(1, 2).Border(lipgloss.RoundedBorder()).BorderForeground(t.BorderNormal()).BorderBackground(t.BackgroundSecondary()).Render(content), t.BackgroundSecondary())
+}
+
+func (s *settingsCmp) changeCompaction(action string) tea.Cmd {
+	cfg := config.Get()
+	settings, automatic := cfg.Compaction, cfg.AutoCompact
+	switch action {
+	case "compact-method":
+		methods := []string{"summary", "shake", "snapcompact", "jev", "native"}
+		for i, method := range methods {
+			if method == settings.EffectiveMethod() {
+				settings.Method = methods[(i+1)%len(methods)]
+				break
+			}
+		}
+	case "compact-mode":
+		switch settings.EffectiveMode() {
+		case "balanced":
+			settings.Mode = "brief"
+		case "brief":
+			settings.Mode = "handoff"
+		default:
+			settings.Mode = "balanced"
+		}
+	case "compact-auto":
+		automatic = !automatic
+	case "compact-focus":
+		s.editingFocus = true
+		s.focusDraft = settings.Focus
+		return nil
+	case "compact-threshold":
+		switch settings.EffectiveThreshold() {
+		case 70:
+			settings.Threshold = 80
+		case 80:
+			settings.Threshold = 90
+		case 90:
+			settings.Threshold = 95
+		default:
+			settings.Threshold = 70
+		}
+	}
+	if err := config.UpdateCompaction(settings, automatic); err != nil {
+		return util.ReportError(err)
+	}
+	return util.ReportInfo("Compaction settings saved")
 }

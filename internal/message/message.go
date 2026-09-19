@@ -184,6 +184,10 @@ func marshallParts(parts []ContentPart) ([]byte, error) {
 		var typ partType
 
 		switch part.(type) {
+		case ContextSnapshot:
+			typ = "context_snapshot"
+		case NativeContext:
+			typ = "native_context"
 		case ReasoningContent:
 			typ = reasoningType
 		case TextContent:
@@ -230,6 +234,18 @@ func unmarshallParts(data []byte) ([]ContentPart, error) {
 		}
 
 		switch wrapper.Type {
+		case "context_snapshot":
+			var part ContextSnapshot
+			if err := json.Unmarshal(wrapper.Data, &part); err != nil {
+				return nil, err
+			}
+			parts = append(parts, part)
+		case "native_context":
+			var part NativeContext
+			if err := json.Unmarshal(wrapper.Data, &part); err != nil {
+				return nil, err
+			}
+			parts = append(parts, part)
 		case reasoningType:
 			part := ReasoningContent{}
 			if err := json.Unmarshal(wrapper.Data, &part); err != nil {
@@ -247,6 +263,7 @@ func unmarshallParts(data []byte) ([]ContentPart, error) {
 			if err := json.Unmarshal(wrapper.Data, &part); err != nil {
 				return nil, err
 			}
+			parts = append(parts, part)
 		case binaryType:
 			part := BinaryContent{}
 			if err := json.Unmarshal(wrapper.Data, &part); err != nil {
