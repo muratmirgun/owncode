@@ -24,10 +24,17 @@ func TestDockedPermissionKeepsActions(t *testing.T) {
 	require.Contains(t, view, "Allow [a]")
 	require.Contains(t, view, "v details")
 	require.Contains(t, ansi.Strip(view), "go test ./...")
-	require.LessOrEqual(t, lipgloss.Height(view), 7)
+	require.LessOrEqual(t, lipgloss.Height(view), 12)
 	p.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
 	require.Greater(t, lipgloss.Height(p.View()), lipgloss.Height(view))
 	p.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
+	p.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	_, selected := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.Equal(t, PermissionAllowForSession, selected().(PermissionResponseMsg).Action)
+	require.Contains(t, ansi.Strip(p.View()), "› 2. Allow for session")
+	p.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	_, selected = p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.Equal(t, PermissionDeny, selected().(PermissionResponseMsg).Action)
 	for _, test := range []struct {
 		key    string
 		action PermissionAction

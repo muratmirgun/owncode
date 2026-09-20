@@ -296,7 +296,7 @@ func (p *chatPage) homeView() (string, int, int) {
 	logo := homeLogo(editorWidth)
 	keyStyle := base.Foreground(t.Secondary()).Bold(true)
 	labelStyle := base.Foreground(t.TextMuted())
-	hintsText := " " + keyStyle.Render("/") + labelStyle.Render(" commands   ") +
+	hintsText := " " + keyStyle.Render("ctrl+p") + labelStyle.Render(" commands   ") +
 		keyStyle.Render("F2") + labelStyle.Render(" models   ") +
 		keyStyle.Render("F3") + labelStyle.Render(" sessions   ") + keyStyle.Render("F4") + labelStyle.Render(" reasoning")
 	hints := base.Width(editorWidth).Render(ansi.Truncate(hintsText, editorWidth, "…"))
@@ -318,31 +318,8 @@ func homeLogo(width int) string {
 	base := styles.BaseStyle()
 	ownStyle := base.Foreground(theme.AdaptiveColor{Dark: "#EEEEEE", Light: "#242424"})
 	codeStyle := base.Foreground(theme.AdaptiveColor{Dark: "#8C8C8C", Light: "#737373"})
-	own := []string{
-		" ██████╗ ██╗    ██╗███╗   ██╗",
-		"██╔═══██╗██║    ██║████╗  ██║",
-		"██║   ██║██║ █╗ ██║██╔██╗ ██║",
-		"██║   ██║██║███╗██║██║╚██╗██║",
-		"╚██████╔╝╚███╔███╔╝██║ ╚████║",
-		" ╚═════╝  ╚══╝╚══╝ ╚═╝  ╚═══╝",
-	}
-	code := []string{
-		" ██████╗ ██████╗ ██████╗ ███████╗",
-		"██╔════╝██╔═══██╗██╔══██╗██╔════╝",
-		"██║     ██║   ██║██║  ██║█████╗  ",
-		"██║     ██║   ██║██║  ██║██╔══╝  ",
-		"╚██████╗╚██████╔╝██████╔╝███████╗",
-		" ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝",
-	}
-	if width < lipgloss.Width(own[0]+code[0]) {
-		return base.Width(width).Align(lipgloss.Center).Render(ownStyle.Render("Own") + codeStyle.Render("Code"))
-	}
-	lines := make([]string, len(own))
-	for row := range own {
-		line := ownStyle.Render(own[row]) + codeStyle.Render(code[row])
-		lines[row] = base.Width(width).Align(lipgloss.Center).Render(line)
-	}
-	return strings.Join(lines, "\n")
+	logo := styles.Wordmark(width, ownStyle, codeStyle)
+	return base.Width(width).Align(lipgloss.Center).Render(logo)
 }
 
 func (p *chatPage) BindingKeys() []key.Binding {

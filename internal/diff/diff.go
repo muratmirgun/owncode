@@ -135,7 +135,7 @@ func ParseUnifiedDiff(diff string) (DiffResult, error) {
 	var currentHunk *Hunk
 
 	hunkHeaderRe := regexp.MustCompile(`^@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@`)
-	lines := strings.Split(diff, "\n")
+	lines := strings.Split(strings.TrimSuffix(diff, "\n"), "\n")
 
 	var oldLine, newLine int
 	inFileHeader := true
@@ -204,7 +204,7 @@ func ParseUnifiedDiff(diff string) (DiffResult, error) {
 					OldLineNo: oldLine,
 					NewLineNo: newLine,
 					Kind:      LineContext,
-					Content:   line,
+					Content:   strings.TrimPrefix(line, " "),
 				})
 				oldLine++
 				newLine++
@@ -841,7 +841,7 @@ func FormatDiff(diffText string, opts ...SideBySideOption) (string, error) {
 
 	var sb strings.Builder
 	for _, h := range diffResult.Hunks {
-		sb.WriteString(RenderSideBySideHunk(diffResult.OldFile, h, opts...))
+		sb.WriteString(renderPreviewHunk(h, NewSideBySideConfig(opts...).TotalWidth))
 	}
 
 	return sb.String(), nil

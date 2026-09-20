@@ -467,11 +467,17 @@ func renderToolResponse(toolCall message.ToolCall, response message.ToolResult, 
 			toMarkdown(resultContent, true, width),
 			t.Background(),
 		)
-	case tools.EditToolName:
+	case tools.EditToolName, tools.WriteToolName:
 		metadata := tools.EditResponseMetadata{}
 		json.Unmarshal([]byte(response.Metadata), &metadata)
-		truncDiff := truncateHeight(metadata.Diff, maxResultHeight)
-		formattedDiff, _ := diff.FormatDiff(truncDiff, diff.WithTotalWidth(width))
+		formattedDiff, err := diff.FormatDiff(metadata.Diff, diff.WithTotalWidth(max(1, width)))
+		if err != nil || strings.TrimSpace(formattedDiff) == "" {
+			return baseStyle.Render(resultContent)
+		}
+		lines := strings.Split(strings.TrimSuffix(formattedDiff, "\n"), "\n")
+		if len(lines) > 24 {
+			return strings.Join(lines[:24], "\n") + "\n" + baseStyle.Foreground(t.TextMuted()).Render(fmt.Sprintf("… %d more diff rows", len(lines)-24))
+		}
 		return formattedDiff
 	case tools.FetchToolName:
 		var params tools.FetchParams
@@ -510,22 +516,7 @@ func renderToolResponse(toolCall message.ToolCall, response message.ToolResult, 
 			toMarkdown(resultContent, true, width),
 			t.Background(),
 		)
-	case tools.WriteToolName:
-		params := tools.WriteParams{}
-		json.Unmarshal([]byte(toolCall.Input), &params)
-		metadata := tools.WriteResponseMetadata{}
-		json.Unmarshal([]byte(response.Metadata), &metadata)
-		ext := filepath.Ext(params.FilePath)
-		if ext == "" {
-			ext = ""
-		} else {
-			ext = strings.ToLower(ext[1:])
-		}
-		resultContent = fmt.Sprintf("```%s\n%s\n```", ext, truncateHeight(params.Content, maxResultHeight))
-		return styles.ForceReplaceBackgroundWithLipgloss(
-			toMarkdown(resultContent, true, width),
-			t.Background(),
-		)
+
 	default:
 		resultContent = fmt.Sprintf("```text\n%s\n```", resultContent)
 		return styles.ForceReplaceBackgroundWithLipgloss(
@@ -640,7 +631,7 @@ func renderToolMessage(
 		messageType: toolMessageType,
 		position:    position,
 		height:      lipgloss.Height(content),
-		content:     styles.ForceReplaceBackgroundWithLipgloss(content, t.BackgroundSecondary()),
+		content:     styles.Surface(content, t.BackgroundSecondary()),
 	}
 	return toolMsg
 }

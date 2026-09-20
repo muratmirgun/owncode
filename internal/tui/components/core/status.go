@@ -120,7 +120,7 @@ func formatTokensAndCost(tokens, contextWindow int64, cost float64) string {
 func (m statusCmp) View() string {
 	t := theme.CurrentTheme()
 	width := max(1, m.width-2)
-	text := "/ commands · ctrl+? help"
+	text := "ctrl+p commands · / shortcuts · ctrl+? help"
 	color := t.TextMuted()
 	if m.info.Msg != "" {
 		text = strings.Join(strings.Fields(m.info.Msg), " ")

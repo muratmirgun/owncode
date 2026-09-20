@@ -15,6 +15,7 @@ import (
 	"github.com/muratmirgun/owncode/internal/llm/agent"
 	"github.com/muratmirgun/owncode/internal/logging"
 	"github.com/muratmirgun/owncode/internal/pubsub"
+	"github.com/muratmirgun/owncode/internal/session"
 	"github.com/muratmirgun/owncode/internal/tui"
 	"github.com/muratmirgun/owncode/internal/version"
 	"github.com/spf13/cobra"
@@ -62,6 +63,10 @@ to assist developers in writing, debugging, and understanding code directly from
 		prompt, _ := cmd.Flags().GetString("prompt")
 		outputFormat, _ := cmd.Flags().GetString("output-format")
 		quiet, _ := cmd.Flags().GetBool("quiet")
+		sessionID, _ := cmd.Flags().GetString("session")
+		if sessionID != "" && prompt != "" {
+			return fmt.Errorf("--session requires interactive mode")
+		}
 
 		// Validate format option
 		if !format.IsValid(outputFormat) {
@@ -104,6 +109,17 @@ to assist developers in writing, debugging, and understanding code directly from
 		// Defer shutdown here so it runs for both interactive and non-interactive modes
 		defer app.Shutdown()
 
+		var selected session.Session
+		if sessionID != "" {
+			selected, err = app.Sessions.Get(ctx, sessionID)
+			if err != nil {
+				return fmt.Errorf("resume session %q: %w", sessionID, err)
+			}
+			if selected.ParentSessionID != "" {
+				return fmt.Errorf("resume the parent session %q instead", selected.ParentSessionID)
+			}
+		}
+
 		// Initialize MCP tools early for both modes
 		initMCPTools(ctx, app)
 
@@ -116,7 +132,7 @@ to assist developers in writing, debugging, and understanding code directly from
 		// Interactive mode
 		// Set up the TUI
 		program := tea.NewProgram(
-			tui.New(app),
+			tui.NewWithSession(app, selected),
 			tea.WithFilter(tui.ScrollFilter()),
 		)
 
@@ -176,7 +192,17 @@ to assist developers in writing, debugging, and understanding code directly from
 			return fmt.Errorf("TUI error: %v", err)
 		}
 
-		logging.Info("TUI exited with result: %v", result)
+		if exited, ok := result.(interface{ ExitSession() session.Session }); ok {
+			selected = exited.ExitSession()
+			if selected.ID != "" {
+				if saved, getErr := app.Sessions.Get(ctx, selected.ID); getErr == nil {
+					if _, writeErr := fmt.Fprint(cmd.OutOrStdout(), exitSummary(saved, resumeDirectory(cmd), exitWidth(), exitColor())); writeErr != nil {
+						return writeErr
+					}
+				}
+			}
+		}
+		logging.Info("TUI exited")
 		return nil
 	},
 }
@@ -295,6 +321,7 @@ func init() {
 	rootCmd.Flags().BoolP("version", "v", false, "Version")
 	rootCmd.Flags().BoolP("debug", "d", false, "Debug")
 	rootCmd.Flags().StringP("cwd", "c", "", "Current working directory")
+	rootCmd.Flags().StringP("session", "s", "", "Resume a saved session by ID")
 	rootCmd.Flags().StringP("prompt", "p", "", "Prompt to run in non-interactive mode")
 
 	// Add format flag with validation logic

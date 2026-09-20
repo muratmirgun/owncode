@@ -66,8 +66,8 @@ var keys = keyMap{
 	),
 
 	Commands: key.NewBinding(
-		key.WithKeys("ctrl+k"),
-		key.WithHelp("ctrl+k", "commands"),
+		key.WithKeys("ctrl+p", "ctrl+k", "f1"),
+		key.WithHelp("ctrl+p / f1", "commands"),
 	),
 	Filepicker: key.NewBinding(
 		key.WithKeys("ctrl+f"),
@@ -153,6 +153,9 @@ type appModel struct {
 
 func (a appModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{tea.RequestBackgroundColor}
+	if a.selectedSession.ID != "" {
+		cmds = append(cmds, util.CmdHandler(chat.SessionSelectedMsg(a.selectedSession)))
+	}
 	cmd := a.pages[a.currentPage].Init()
 	a.loadedPages[a.currentPage] = true
 	cmds = append(cmds, cmd)
@@ -219,6 +222,11 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if a.showModelDialog && !a.showQuit && !a.showPermissions && isInputMessage(msg) {
 		updated, cmd := a.modelDialog.Update(msg)
 		a.modelDialog = updated.(dialog.ModelDialog)
+		return a, cmd
+	}
+	if a.showCommandDialog && !a.showQuit && !a.showPermissions && isInputMessage(msg) {
+		updated, cmd := a.commandDialog.Update(msg)
+		a.commandDialog = updated.(dialog.CommandDialog)
 		return a, cmd
 	}
 	if a.isCompacting && isInputMessage(msg) {
@@ -662,7 +670,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				a.commandDialog.SetCommands(a.commands)
 				a.showCommandDialog = true
-				return a, nil
+				return a, a.commandDialog.Init()
 			}
 			return a, nil
 		case key.Matches(msg, keys.Models):
@@ -1012,7 +1020,7 @@ func (a appModel) render() string {
 			row,
 			overlay,
 			appView,
-			true,
+			false,
 		)
 	}
 
@@ -1129,6 +1137,7 @@ If there are Cursor rules (in .cursor/rules/ or .cursorrules) or Copilot rules (
 			}
 		},
 	})
+	model.registerPaletteCommands()
 	// Load custom commands
 	customCommands, err := dialog.LoadCustomCommands()
 	if err != nil {
@@ -1170,3 +1179,13 @@ func (a *appModel) openModelDialog() tea.Cmd {
 	a.showModelDialog = true
 	return cmd
 }
+
+// NewWithSession starts the interface with an existing session.
+func NewWithSession(app *app.App, selected session.Session) tea.Model {
+	model := New(app).(*appModel)
+	model.selectedSession = selected
+	return model
+}
+
+// ExitSession returns the main conversation, even while viewing a child agent.
+func (a appModel) ExitSession() session.Session { return a.selectedSession }
