@@ -3,6 +3,8 @@ package chat
 import (
 	"context"
 	"fmt"
+	"github.com/muratmirgun/owncode/internal/version"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -100,33 +102,56 @@ func (m *sidebarCmp) View() string {
 	if title == "" {
 		title = "New chat"
 	}
-	rows := []string{heading("OwnCode"), line(filepath.Base(config.WorkingDirectory())), line(""), heading("Session"), line(title), line("")}
+	rows := []string{heading(title)}
+	if m.session.ID != "" {
+		rows = append(rows, line(m.session.ID))
+	}
+	rows = append(rows, line(""), heading("Context"))
 	cfg := config.Get()
 	model := models.SupportedModels[cfg.Agents[config.AgentCoder].Model]
-	used := m.session.PromptTokens + m.session.CompletionTokens
-	rows = append(rows, heading("Context"))
+	used := max(int64(0), m.session.PromptTokens+m.session.CompletionTokens)
 	if model.ContextWindow > 0 {
-		percent := min(100, int(float64(used)*100/float64(model.ContextWindow)))
-		barWidth := max(1, min(20, m.width-8))
-		filled := percent * barWidth / 100
-		bar := strings.Repeat("━", filled) + strings.Repeat("─", barWidth-filled)
+		percent := int(float64(used) * 100 / float64(model.ContextWindow))
+		rows = append(rows, line(fmt.Sprintf("%s / %s tokens", groupDigits(used), groupDigits(model.ContextWindow))), line(fmt.Sprintf("%d%% used", percent)))
+		barWidth := max(1, min(28, m.width))
+		filled := min(barWidth, max(0, int(float64(used)*float64(barWidth)/float64(model.ContextWindow))))
+		if used > 0 && filled == 0 {
+			filled = 1
+		}
 		color := t.Primary()
 		if percent >= cfg.Compaction.EffectiveThreshold() {
 			color = t.Warning()
 		}
-		rows = append(rows, base.Foreground(color).Render(fmt.Sprintf("%s %d%%", bar, percent)), line(fmt.Sprintf("%d / %d tokens", used, model.ContextWindow)))
+		bar := base.Foreground(color).Render(strings.Repeat("█", filled)) + base.Foreground(t.BorderNormal()).Render(strings.Repeat("░", barWidth-filled))
+		rows = append(rows, base.Width(m.width).Render(bar))
 	} else {
 		rows = append(rows, line("Model not configured"))
 	}
-	mode := cfg.Compaction.EffectiveMode()
+	rows = append(rows, line(fmt.Sprintf("$%.2f spent", m.session.Cost)))
+	mode := cfg.Compaction.EffectiveMethod()
 	if cfg.AutoCompact {
 		mode += fmt.Sprintf(" · auto %d%%", cfg.Compaction.EffectiveThreshold())
 	} else {
 		mode += " · manual"
 	}
-	rows = append(rows, line(mode), line("/compact · /agents"), line(""), heading("Language servers"))
+	rows = append(rows, line(mode), line(""), heading("MCP"))
+	var servers []string
+	for name := range cfg.MCPServers {
+		servers = append(servers, name)
+	}
+	sort.Strings(servers)
+	for _, name := range servers {
+		rows = append(rows, line("• "+name+" · on demand"))
+	}
+	if len(servers) == 0 {
+		rows = append(rows, line("None configured"))
+	}
+	rows = append(rows, line(""), heading("LSP"))
 	var names []string
-	for name := range config.Get().LSP {
+	for name, server := range cfg.LSP {
+		if server.Disabled {
+			continue
+		}
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -149,7 +174,28 @@ func (m *sidebarCmp) View() string {
 	if len(paths) == 0 {
 		rows = append(rows, line("No modified files"))
 	}
-	return base.Width(m.width).Height(m.height).MaxHeight(m.height).Render(strings.Join(rows, "\n"))
+	cwd := config.WorkingDirectory()
+	if home, err := os.UserHomeDir(); err == nil {
+		if cwd == home {
+			cwd = "~"
+		} else if strings.HasPrefix(cwd, home+string(filepath.Separator)) {
+			cwd = "~" + strings.TrimPrefix(cwd, home)
+		}
+	}
+	build := version.Version
+	if build == "unknown" {
+		build = "dev"
+	}
+	footer := []string{line(cwd), line(""), heading("OwnCode " + build)}
+	available := max(0, m.height-len(footer)-1)
+	if len(rows) > available {
+		rows = rows[:available]
+	}
+	for len(rows) < max(0, m.height-len(footer)) {
+		rows = append(rows, line(""))
+	}
+	rows = append(rows, footer...)
+	return styles.Surface(base.Width(m.width).Height(m.height).MaxHeight(m.height).Render(strings.Join(rows, "\n")), t.BackgroundSecondary())
 }
 
 func (m *sidebarCmp) SetSize(width, height int) tea.Cmd {
@@ -302,4 +348,12 @@ func getDisplayPath(path string) string {
 	workingDir := config.WorkingDirectory()
 	displayPath := strings.TrimPrefix(path, workingDir)
 	return strings.TrimPrefix(displayPath, "/")
+}
+
+func groupDigits(value int64) string {
+	text := fmt.Sprint(value)
+	for i := len(text) - 3; i > 0; i -= 3 {
+		text = text[:i] + "," + text[i:]
+	}
+	return text
 }

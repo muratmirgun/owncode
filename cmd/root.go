@@ -117,6 +117,7 @@ to assist developers in writing, debugging, and understanding code directly from
 		// Set up the TUI
 		program := tea.NewProgram(
 			tui.New(app),
+			tea.WithFilter(tui.ScrollFilter()),
 		)
 
 		// Setup the subscriptions, this will send services events to the TUI
@@ -251,7 +252,11 @@ func setupSubscriptions(app *app.App, parentCtx context.Context) (chan tea.Msg, 
 
 	setupSubscriber(ctx, &wg, "logging", logging.Subscribe, ch)
 	setupSubscriber(ctx, &wg, "sessions", app.Sessions.Subscribe, ch)
-	setupSubscriber(ctx, &wg, "messages", app.Messages.Subscribe, ch)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		forwardMessageBatches(ctx, app.Messages.Subscribe(ctx), ch)
+	}()
 	setupSubscriber(ctx, &wg, "permissions", app.Permissions.Subscribe, ch)
 	setupSubscriber(ctx, &wg, "coderAgent", app.CoderAgent.Subscribe, ch)
 

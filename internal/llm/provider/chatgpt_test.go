@@ -59,3 +59,58 @@ func TestChatGPTUsesResponsesForChatAndSummary(t *testing.T) {
 		require.Contains(t, string(body["input"]), "hello")
 	}
 }
+
+func TestChatGPTPreservesStreamedItemsWithEmptyFinalOutput(t *testing.T) {
+	for _, terminalOutput := range []string{`[]`, `null`, ``} {
+		t.Run("output="+terminalOutput, func(t *testing.T) {
+			reasoning := json.RawMessage(`{"type":"reasoning","id":"r1","encrypted_content":"opaque-state","summary":[]}`)
+			call := json.RawMessage(`{"type":"function_call","id":"f1","call_id":"call1","name":"agent","arguments":"{\"prompt\":\"Read the project\"}"}`)
+			text := json.RawMessage(`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I will inspect it."}]}`)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				// Indices, not delivery order, determine replay order.
+				fmt.Fprintf(w, "data: {\"type\":\"response.output_item.done\",\"output_index\":1,\"item\":%s}\n\n", call)
+				fmt.Fprintf(w, "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":%s}\n\n", reasoning)
+				fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"I will \"}\n\n")
+				fmt.Fprintf(w, "data: {\"type\":\"response.output_item.done\",\"output_index\":2,\"item\":%s}\n\n", text)
+				output := ""
+				if terminalOutput != "" {
+					output = `,"output":` + terminalOutput
+				}
+				fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"%s}}\n\n", output)
+			}))
+			defer server.Close()
+			c := newOpenAIClient(providerClientOptions{model: models.Model{Provider: "chatgpt", APIModel: "test"}, openaiOptions: []OpenAIOption{WithChatGPT()}}).(*openaiClient)
+			c.client = openai.NewClient(option.WithBaseURL(server.URL), option.WithAPIKey("test"))
+			var complete *ProviderResponse
+			var content string
+			for event := range c.stream(context.Background(), nil, nil) {
+				require.NoError(t, event.Error)
+				if event.Type == EventContentDelta {
+					content += event.Content
+				}
+				if event.Type == EventComplete {
+					complete = event.Response
+				}
+			}
+			require.NotNil(t, complete)
+			require.Equal(t, "I will inspect it.", content)
+			require.Equal(t, message.FinishReasonToolUse, complete.FinishReason)
+			require.Len(t, complete.ToolCalls, 1)
+			require.Equal(t, "agent", complete.ToolCalls[0].Name)
+			require.Equal(t, "call1", complete.ToolCalls[0].ID)
+			require.JSONEq(t, `{"prompt":"Read the project"}`, complete.ToolCalls[0].Input)
+			want, _ := json.Marshal([]json.RawMessage{reasoning, call, text})
+			require.JSONEq(t, string(want), string(complete.Native.Data))
+			replay, err := c.responseInput([]message.Message{
+				{Role: message.Assistant, Parts: []message.ContentPart{*complete.Native}},
+				{Role: message.Tool, Parts: []message.ContentPart{message.ToolResult{ToolCallID: "call1", Content: "Project inspected"}}},
+			})
+			require.NoError(t, err)
+			encoded, err := json.Marshal(replay)
+			require.NoError(t, err)
+			require.Contains(t, string(encoded), "function_call_output")
+			require.Contains(t, string(encoded), "opaque-state")
+		})
+	}
+}

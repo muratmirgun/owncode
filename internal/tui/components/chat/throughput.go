@@ -26,21 +26,25 @@ func throughputTick() tea.Cmd {
 }
 
 type throughputStats struct {
-	created   time.Time
-	samples   []throughputSample
-	messageID string
-	started   time.Time
-	tokens    int
-	rate      float64
-	history   []float64
-	total     float64
-	count     int
-	finished  bool
+	created     time.Time
+	samples     []throughputSample
+	messageID   string
+	started     time.Time
+	tokens      int
+	rate        float64
+	history     []float64
+	total       float64
+	count       int
+	finished    bool
+	exactTokens bool
 }
 
 // observe estimates tokens from text, reasoning, and tool arguments. The UI marks
 // all values as approximate because providers do not report live token counts.
 func (s *throughputStats) observe(msg message.Message, now time.Time) {
+	if !msg.StreamUpdatedAt.IsZero() {
+		now = msg.StreamUpdatedAt
+	}
 	if msg.ID != s.messageID {
 		if msg.IsFinished() {
 			return
@@ -52,6 +56,7 @@ func (s *throughputStats) observe(msg message.Message, now time.Time) {
 		s.tokens = 0
 		s.rate = 0
 		s.finished = false
+		s.exactTokens = false
 	}
 	if s.finished {
 		return
@@ -65,6 +70,9 @@ func (s *throughputStats) observe(msg message.Message, now time.Time) {
 	if s.tokens > 0 && s.started.IsZero() {
 		s.started = now
 	}
+	if !msg.StreamStartedAt.IsZero() {
+		s.started = msg.StreamStartedAt
+	}
 	if s.tokens != previous {
 		s.samples = append(s.samples, throughputSample{at: now, tokens: s.tokens})
 	}
@@ -74,11 +82,15 @@ func (s *throughputStats) observe(msg message.Message, now time.Time) {
 		return
 	}
 	s.finished = true
+	if msg.OutputTokens > 0 {
+		s.tokens = int(msg.OutputTokens)
+		s.exactTokens = true
+	}
 	if s.tokens > 0 {
 		duration := now.Sub(s.started)
 		// A provider can deliver the whole response in one update. In that case,
 		// measure the observed request duration instead of inventing stream timing.
-		if len(s.samples) < 2 {
+		if len(s.samples) < 2 && msg.StreamStartedAt.IsZero() {
 			duration = now.Sub(s.created)
 		}
 		s.rate = float64(s.tokens) / max(duration.Seconds(), 0.001)
@@ -147,6 +159,9 @@ func (m *editorCmp) throughputView() string {
 	if s := m.throughput[m.session.ID]; s != nil {
 		if s.tokens > 0 {
 			parts[1] = fmt.Sprintf("≈%.0f TPS", s.rate)
+			if s.exactTokens {
+				parts[1] = fmt.Sprintf("%.0f TPS", s.rate)
+			}
 		}
 		if graph := s.sparkline(); graph != "" {
 			parts = append(parts, graph)
@@ -154,7 +169,11 @@ func (m *editorCmp) throughputView() string {
 		if s.count > 0 {
 			parts = append(parts, fmt.Sprintf("avg ≈%.0f", s.total/float64(s.count)))
 		}
-		parts = append(parts, fmt.Sprintf("≈%d tokens", s.tokens))
+		tokenLabel := fmt.Sprintf("≈%d tokens", s.tokens)
+		if s.exactTokens {
+			tokenLabel = fmt.Sprintf("%d tokens", s.tokens)
+		}
+		parts = append(parts, tokenLabel)
 	}
 	// Drop lower priority fields before truncating model, speed, and history.
 	for len(parts) > 3 && ansi.StringWidth(strings.Join(parts, " · ")) > m.width {

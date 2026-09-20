@@ -4,6 +4,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"fmt"
 	"github.com/muratmirgun/owncode/internal/tui/styles"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
 	"github.com/muratmirgun/owncode/internal/tui/util"
@@ -15,8 +16,11 @@ type Container interface {
 	Bindings
 }
 type container struct {
-	width  int
-	height int
+	width         int
+	height        int
+	cachedContent string
+	cachedStyle   string
+	cachedView    string
 
 	content util.Model
 
@@ -39,9 +43,49 @@ func (c *container) Init() tea.Cmd {
 }
 
 func (c *container) Update(msg tea.Msg) (util.Model, tea.Cmd) {
+	if scroll, ok := msg.(util.ScrollMsg); ok {
+		scroll.Wheel.X -= c.paddingLeft
+		scroll.Wheel.Y -= c.paddingTop
+		if c.borderLeft {
+			scroll.Wheel.X--
+		}
+		if c.borderTop {
+			scroll.Wheel.Y--
+		}
+		msg = scroll
+	}
+
+	if click, ok := msg.(tea.MouseClickMsg); ok {
+		click.X -= c.paddingLeft
+		click.Y -= c.paddingTop
+		if c.borderLeft {
+			click.X--
+		}
+		if c.borderTop {
+			click.Y--
+		}
+		msg = click
+	}
+	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
+		wheel.X -= c.paddingLeft
+		wheel.Y -= c.paddingTop
+		if c.borderLeft {
+			wheel.X--
+		}
+		if c.borderTop {
+			wheel.Y--
+		}
+		msg = wheel
+	}
 	u, cmd := c.content.Update(msg)
 	c.content = u
 	return c, cmd
+}
+
+// ReadOnly forwards the child conversation state to its page.
+func (c *container) ReadOnly() bool {
+	child, ok := c.content.(interface{ ReadOnly() bool })
+	return ok && child.ReadOnly()
 }
 
 func (c *container) View() string {
@@ -82,7 +126,15 @@ func (c *container) View() string {
 		PaddingBottom(c.paddingBottom).
 		PaddingLeft(c.paddingLeft)
 
-	return styles.Surface(style.Render(c.content.View()), bg)
+	content := c.content.View()
+	styleKey := fmt.Sprintf("%v/%v/%d/%d", bg, t.BorderNormal(), c.width, c.height)
+	if c.cachedView != "" && c.cachedContent == content && c.cachedStyle == styleKey {
+		return c.cachedView
+	}
+	c.cachedContent, c.cachedStyle = content, styleKey
+	content = styles.FitFrame(content, max(0, width-c.paddingLeft-c.paddingRight), max(0, height-c.paddingTop-c.paddingBottom))
+	c.cachedView = styles.Surface(style.UnsetWidth().UnsetHeight().Render(content), bg)
+	return c.cachedView
 }
 
 func (c *container) SetSize(width, height int) tea.Cmd {
@@ -237,4 +289,26 @@ func (c *container) PreferredHeight(width int) int {
 		vertical++
 	}
 	return child.PreferredHeight(max(1, width-horizontal)) + vertical
+}
+
+// ScrollOffset returns the visible conversation offset.
+func (c *container) ScrollOffset() int {
+	if content, ok := c.content.(interface{ ScrollOffset() int }); ok {
+		return content.ScrollOffset()
+	}
+	return 0
+}
+
+func (c *container) ReadingHistory() bool {
+	if content, ok := c.content.(interface{ ReadingHistory() bool }); ok {
+		return content.ReadingHistory()
+	}
+	return false
+}
+
+func (c *container) ScrollFrameKey() string {
+	if content, ok := c.content.(interface{ ScrollFrameKey() string }); ok {
+		return content.ScrollFrameKey()
+	}
+	return ""
 }

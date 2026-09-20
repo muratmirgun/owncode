@@ -16,6 +16,7 @@ import (
 var runningTasks sync.Map
 
 type agentTool struct {
+	costMu     sync.Mutex
 	sessions   session.Service
 	messages   message.Service
 	lspClients map[string]*lsp.Client
@@ -97,6 +98,9 @@ func (b *agentTool) Run(ctx context.Context, call tools.ToolCall) (tools.ToolRes
 	if err != nil {
 		return tools.ToolResponse{}, fmt.Errorf("error getting session: %s", err)
 	}
+	// Serialize the parent cost update so concurrent children do not lose charges.
+	b.costMu.Lock()
+	defer b.costMu.Unlock()
 	parentSession, err := b.sessions.Get(ctx, sessionID)
 	if err != nil {
 		return tools.ToolResponse{}, fmt.Errorf("error getting parent session: %s", err)

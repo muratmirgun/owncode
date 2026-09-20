@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 
 	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
@@ -300,24 +301,57 @@ func (o *openaiClient) nativeStream(ctx context.Context, messages []message.Mess
 		}
 		defer raw.Body.Close()
 		complete := false
+		items := make(map[int]json.RawMessage)
+		streamedText := ""
 		err = readSSE(ctx, raw, func(data []byte) error {
 			var event struct {
-				Type     string           `json:"type"`
-				Delta    string           `json:"delta"`
-				Response responseEnvelope `json:"response"`
+				Type        string           `json:"type"`
+				OutputIndex int              `json:"output_index"`
+				Item        json.RawMessage  `json:"item"`
+				Delta       string           `json:"delta"`
+				Response    responseEnvelope `json:"response"`
 			}
 			if err := json.Unmarshal(data, &event); err != nil {
 				return err
 			}
 			switch event.Type {
 			case "response.output_text.delta":
+				streamedText += event.Delta
 				emit(ProviderEvent{Type: EventContentDelta, Content: event.Delta})
 			case "response.reasoning_summary_text.delta":
 				emit(ProviderEvent{Type: EventThinkingDelta, Thinking: event.Delta})
+			case "response.output_item.done":
+				items[event.OutputIndex] = slices.Clone(event.Item)
 			case "response.completed", "response.incomplete":
+				// Some ChatGPT streams send output only in item events.
+				// Preserve complete items, including encrypted reasoning, for replay.
+				var output []json.RawMessage
+				if len(event.Response.Output) > 0 {
+					if err := json.Unmarshal(event.Response.Output, &output); err != nil {
+						return err
+					}
+				}
+				if len(output) == 0 && len(items) > 0 {
+					indices := make([]int, 0, len(items))
+					for index := range items {
+						indices = append(indices, index)
+					}
+					slices.Sort(indices)
+					for _, index := range indices {
+						output = append(output, items[index])
+					}
+					encoded, err := json.Marshal(output)
+					if err != nil {
+						return err
+					}
+					event.Response.Output = encoded
+				}
 				result, err := o.decodeResponse(event.Response)
 				if err != nil {
 					return err
+				}
+				if strings.HasPrefix(result.Content, streamedText) && len(result.Content) > len(streamedText) {
+					emit(ProviderEvent{Type: EventContentDelta, Content: result.Content[len(streamedText):]})
 				}
 				emit(ProviderEvent{Type: EventComplete, Response: result})
 				complete = true

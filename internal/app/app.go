@@ -166,6 +166,14 @@ func (a *App) RunNonInteractive(ctx context.Context, prompt string, outputFormat
 
 // Shutdown performs a clean shutdown of the application
 func (app *App) Shutdown() {
+	if storage, ok := app.Messages.(interface{ Close(context.Context) error }); ok {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := storage.Close(ctx); err != nil {
+			logging.Error("Failed to flush messages", "error", err)
+		}
+		cancel()
+	}
+
 	// Cancel all watcher goroutines
 	app.cancelFuncsMutex.Lock()
 	for _, cancel := range app.watcherCancelFuncs {

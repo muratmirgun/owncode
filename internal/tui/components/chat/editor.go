@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -28,6 +29,9 @@ import (
 )
 
 type editorCmp struct {
+	history           []sentDraft
+	historyOffset     int
+	historyDrafts     map[int]string
 	home              bool
 	width             int
 	height            int
@@ -143,6 +147,7 @@ func (m *editorCmp) send() tea.Cmd {
 
 	value := m.textarea.Value()
 	m.textarea.Reset()
+	m.resetRecall()
 	attachments := m.attachments
 
 	m.attachments = nil
@@ -185,6 +190,9 @@ func (m *editorCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 		}
 		return m, nil
 	case pubsub.Event[message.Message]:
+		if msg.Payload.Role == message.User && msg.Payload.SessionID == m.session.ID && msg.Type == pubsub.CreatedEvent {
+			m.rememberMessage(msg.Payload)
+		}
 		if msg.Payload.Role == message.Assistant && msg.Type != pubsub.DeletedEvent {
 			if m.throughput == nil {
 				m.throughput = make(map[string]*throughputStats)
@@ -202,6 +210,8 @@ func (m *editorCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 		}
 		return m, nil
 	case SessionClearedMsg:
+		m.history = nil
+		m.resetRecall()
 		m.session = session.Session{}
 		m.textarea.Reset()
 		m.attachments = nil
@@ -210,6 +220,17 @@ func (m *editorCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	case SessionSelectedMsg:
 		if msg.ID != m.session.ID {
 			m.session = msg
+			m.history = nil
+			m.resetRecall()
+			if m.app != nil && m.app.Messages != nil {
+				messages, err := m.app.Messages.List(context.Background(), msg.ID)
+				if err != nil {
+					return m, util.ReportError(err)
+				}
+				for _, previous := range messages {
+					m.rememberMessage(previous)
+				}
+			}
 		}
 		return m, nil
 	case dialog.AttachmentAddedMsg:
@@ -221,6 +242,9 @@ func (m *editorCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		if handled, cmd := m.handleSlash(msg); handled {
 			return m, cmd
+		}
+		if !m.deleteMode && m.recallMessage(msg) {
+			return m, m.slashSuggestions()
 		}
 		if key.Matches(msg, DeleteKeyMaps.AttachmentDeleteMode) {
 			m.deleteMode = true
@@ -353,6 +377,10 @@ func (m *editorCmp) BindingKeys() []key.Binding {
 	bindings := []key.Binding{}
 	bindings = append(bindings, layout.KeyMapToSlice(editorMaps)...)
 	bindings = append(bindings, layout.KeyMapToSlice(DeleteKeyMaps)...)
+	bindings = append(bindings,
+		key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "previous prompt at first line")),
+		key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "next prompt at last line")),
+	)
 	return bindings
 }
 

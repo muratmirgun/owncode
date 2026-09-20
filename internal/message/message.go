@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,13 +33,18 @@ type Service interface {
 
 type service struct {
 	*pubsub.Broker[Message]
-	q db.Querier
+	q       db.Querier
+	mu      sync.Mutex
+	pending map[string]*pendingUpdate
+	closed  bool
+	updates sync.WaitGroup
 }
 
 func NewService(q db.Querier) Service {
 	return &service{
-		Broker: pubsub.NewBroker[Message](),
-		q:      q,
+		Broker:  pubsub.NewBroker[Message](),
+		q:       q,
+		pending: make(map[string]*pendingUpdate),
 	}
 }
 
@@ -78,7 +85,9 @@ func (s *service) Create(ctx context.Context, sessionID string, params CreateMes
 	if err != nil {
 		return Message{}, err
 	}
-	s.Publish(pubsub.CreatedEvent, message)
+	snapshot := message
+	snapshot.Parts = slices.Clone(message.Parts)
+	s.Publish(pubsub.CreatedEvent, snapshot)
 	return message, nil
 }
 
@@ -98,7 +107,7 @@ func (s *service) DeleteSessionMessages(ctx context.Context, sessionID string) e
 	return nil
 }
 
-func (s *service) Update(ctx context.Context, message Message) error {
+func (s *service) writeUpdate(ctx context.Context, message Message) error {
 	parts, err := marshallParts(message.Parts)
 	if err != nil {
 		return err
@@ -117,11 +126,16 @@ func (s *service) Update(ctx context.Context, message Message) error {
 		return err
 	}
 	message.UpdatedAt = time.Now().Unix()
+	// The agent keeps editing its parts slice while the UI consumes events.
+	message.Parts = slices.Clone(message.Parts)
 	s.Publish(pubsub.UpdatedEvent, message)
 	return nil
 }
 
 func (s *service) Get(ctx context.Context, id string) (Message, error) {
+	if err := s.Flush(ctx, id); err != nil {
+		return Message{}, err
+	}
 	dbMessage, err := s.q.GetMessage(ctx, id)
 	if err != nil {
 		return Message{}, err
@@ -130,6 +144,9 @@ func (s *service) Get(ctx context.Context, id string) (Message, error) {
 }
 
 func (s *service) List(ctx context.Context, sessionID string) ([]Message, error) {
+	if err := s.flushSession(ctx, sessionID); err != nil {
+		return nil, err
+	}
 	dbMessages, err := s.q.ListMessagesBySession(ctx, sessionID)
 	if err != nil {
 		return nil, err

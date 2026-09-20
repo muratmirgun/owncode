@@ -103,3 +103,22 @@ func TestThroughputTickerStopsAfterCompletion(t *testing.T) {
 	require.Nil(t, cmd)
 	require.False(t, m.throughputTicking)
 }
+
+func TestThroughputUsesProviderCountAndStreamClock(t *testing.T) {
+	s := &throughputStats{}
+	start := time.Unix(100, 0)
+	msg := message.Message{ID: "timed", Role: message.Assistant, StreamStartedAt: start, StreamUpdatedAt: start}
+	msg.AppendContent("first batch")
+	s.observe(msg, start.Add(3*time.Second))
+	msg.AppendContent(" second batch")
+	msg.StreamUpdatedAt = start.Add(time.Second)
+	s.observe(msg, start.Add(6*time.Second))
+	msg.StreamUpdatedAt = start.Add(2 * time.Second)
+	msg.OutputTokens = 400
+	msg.AddFinish(message.FinishReasonEndTurn)
+	s.observe(msg, start.Add(10*time.Second))
+	require.Equal(t, 200.0, s.rate)
+	require.Equal(t, 400, s.tokens)
+	require.True(t, s.exactTokens)
+	require.Equal(t, []float64{200}, s.history)
+}

@@ -99,15 +99,11 @@ func (b *Broker[T]) Publish(t EventType, payload T) {
 	default:
 	}
 
-	subscribers := make([]chan Event[T], 0, len(b.subs))
-	for sub := range b.subs {
-		subscribers = append(subscribers, sub)
-	}
-	b.mu.RUnlock()
-
+	defer b.mu.RUnlock()
 	event := Event[T]{Type: t, Payload: payload}
-
-	for _, sub := range subscribers {
+	// Keep the read lock through each nonblocking send. Unsubscribe must not
+	// close a channel between taking a subscriber snapshot and publishing.
+	for sub := range b.subs {
 		select {
 		case sub <- event:
 		default:

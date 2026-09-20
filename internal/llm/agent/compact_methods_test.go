@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"image/png"
 	"os"
@@ -125,4 +126,41 @@ func TestOrphanSnapshotDoesNotReplaceHistory(t *testing.T) {
 	active = activeSummaryMessages(original, "")
 	require.Len(t, active, 2)
 	require.Equal(t, "old", active[0].ID)
+}
+
+func TestJevCompactsTextAndPreservesNonTextParts(t *testing.T) {
+	native := message.NativeContext{Provider: "openai", Model: "test", Data: json.RawMessage(`[{"type":"reasoning","encrypted_content":"opaque"},{"type":"function_call","call_id":"old","name":"view","arguments":"{}"}]`)}
+	image := message.BinaryContent{Data: []byte("image"), MIMEType: "image/png"}
+	url := message.ImageURLContent{URL: "https://example.com/image.png"}
+	msgs := []message.Message{
+		{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "inspect"}, image, url}},
+		{Role: message.Assistant, Parts: []message.ContentPart{native, message.ToolCall{ID: "old", Name: "view", Input: `{}`, Finished: true}}},
+		{Role: message.Tool, Parts: []message.ContentPart{message.ToolResult{ToolCallID: "old", Name: "view", Content: strings.Repeat("old output line\n", 2000)}, image}},
+	}
+	for range 4 {
+		msgs = append(msgs, message.Message{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "current task"}}})
+	}
+	before, err := json.Marshal(msgs)
+	require.NoError(t, err)
+	result, err := compactWithJev(context.Background(), msgs, config.JevSettings{TargetTokens: 2000}, t.TempDir(), "inspect", lowLossScorer{})
+	require.NoError(t, err)
+	require.Len(t, result.messages, len(msgs))
+	require.Equal(t, msgs[0], result.messages[0])
+	require.Equal(t, msgs[1], result.messages[1])
+	require.Equal(t, []message.BinaryContent{image}, result.messages[2].BinaryContent())
+	require.Less(t, len(result.messages[2].ToolResults()[0].Content), len(msgs[2].ToolResults()[0].Content))
+	after, err := json.Marshal(msgs)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+}
+
+func TestJevTextChatWithNativeMetadataNeedsNoShake(t *testing.T) {
+	msgs := []message.Message{
+		{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "hello"}}},
+		{Role: message.Assistant, Parts: []message.ContentPart{message.TextContent{Text: "hello back"}, message.NativeContext{Provider: "openai", Data: json.RawMessage(`[]`)}}},
+	}
+	result, err := compactWithJev(context.Background(), msgs, config.JevSettings{}, t.TempDir(), "", lowLossScorer{fail: true})
+	require.NoError(t, err)
+	require.Empty(t, result.messages)
+	require.Contains(t, result.notice, "no tool text")
 }

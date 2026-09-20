@@ -180,6 +180,11 @@ func (p *baseProvider[C]) cleanMessages(messages []message.Message) (cleaned []m
 }
 
 func (p *baseProvider[C]) SendMessages(ctx context.Context, messages []message.Message, tools []tools.BaseTool) (*ProviderResponse, error) {
+	var err error
+	messages, err = portableContext(messages, p.client)
+	if err != nil {
+		return nil, err
+	}
 	if err := validateContext(messages, p.options.model); err != nil {
 		return nil, err
 	}
@@ -199,6 +204,11 @@ func (p *baseProvider[C]) Model() models.Model {
 }
 
 func (p *baseProvider[C]) StreamResponse(ctx context.Context, messages []message.Message, tools []tools.BaseTool) <-chan ProviderEvent {
+	var err error
+	messages, err = portableContext(messages, p.client)
+	if err != nil {
+		return nativeEvents(ctx, func(func(ProviderEvent) bool) error { return err })
+	}
 	if err := validateContext(messages, p.options.model); err != nil {
 		return nativeEvents(ctx, func(func(ProviderEvent) bool) error { return err })
 	}

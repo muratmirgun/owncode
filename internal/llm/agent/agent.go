@@ -351,7 +351,8 @@ func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msg
 
 	toolResults := make([]message.ToolResult, len(assistantMsg.ToolCalls()))
 	toolCalls := assistantMsg.ToolCalls()
-	for i, toolCall := range toolCalls {
+	for i := 0; i < len(toolCalls); i++ {
+		toolCall := toolCalls[i]
 		select {
 		case <-ctx.Done():
 			a.finishMessage(context.Background(), &assistantMsg, message.FinishReasonCanceled)
@@ -387,6 +388,18 @@ func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msg
 					Content:    fmt.Sprintf("Tool not found: %s", toolCall.Name),
 					IsError:    true,
 				}
+				continue
+			}
+			if toolCall.Name == AgentToolName {
+				end := i + 1
+				for end < len(toolCalls) && toolCalls[end].Name == AgentToolName {
+					end++
+				}
+				copy(toolResults[i:end], runAgentBatch(ctx, tool, toolCalls[i:end]))
+				if ctx.Err() != nil {
+					a.finishMessage(context.Background(), &assistantMsg, message.FinishReasonCanceled)
+				}
+				i = end - 1
 				continue
 			}
 			toolResult, toolErr := tool.Run(ctx, tools.ToolCall{
@@ -441,7 +454,11 @@ out:
 
 func (a *agent) finishMessage(ctx context.Context, msg *message.Message, finishReson message.FinishReason) {
 	msg.AddFinish(finishReson)
-	_ = a.messages.Update(ctx, *msg)
+	flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := a.messages.Update(flushCtx, *msg); err != nil {
+		logging.Error("Failed to persist message completion", "error", err)
+	}
 }
 
 func (a *agent) processEvent(ctx context.Context, sessionID string, assistantMsg *message.Message, event provider.ProviderEvent) error {
@@ -452,6 +469,10 @@ func (a *agent) processEvent(ctx context.Context, sessionID string, assistantMsg
 		// Continue processing.
 	}
 
+	assistantMsg.StreamUpdatedAt = time.Now()
+	if assistantMsg.StreamStartedAt.IsZero() && (event.Type == provider.EventContentDelta || event.Type == provider.EventThinkingDelta || event.Type == provider.EventToolUseStart) {
+		assistantMsg.StreamStartedAt = assistantMsg.StreamUpdatedAt
+	}
 	switch event.Type {
 	case provider.EventThinkingDelta:
 		assistantMsg.AppendReasoningContent(event.Content)
@@ -482,6 +503,7 @@ func (a *agent) processEvent(ctx context.Context, sessionID string, assistantMsg
 		logging.ErrorPersist(event.Error.Error())
 		return event.Error
 	case provider.EventComplete:
+		assistantMsg.OutputTokens = event.Response.Usage.OutputTokens
 		if event.Response.Native != nil {
 			assistantMsg.Parts = append(assistantMsg.Parts, *event.Response.Native)
 		}

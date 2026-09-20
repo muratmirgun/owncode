@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -36,6 +35,7 @@ type uiMessage struct {
 	position    int
 	height      int
 	content     string
+	taskID      string
 }
 
 func toMarkdown(content string, focused bool, width int) string {
@@ -48,7 +48,9 @@ func renderMessage(msg string, isUser bool, isFocused bool, width int, info ...s
 	t := theme.CurrentTheme()
 
 	style := styles.BaseStyle().
-		Width(width - 1).
+		Width(max(1, width)).
+		Padding(1, 1).
+		Background(t.BackgroundSecondary()).
 		BorderLeft(true).
 		Foreground(t.TextMuted()).
 		BorderForeground(t.Primary()).
@@ -60,7 +62,7 @@ func renderMessage(msg string, isUser bool, isFocused bool, width int, info ...s
 
 	// Apply markdown formatting and handle background color
 	parts := []string{
-		styles.ForceReplaceBackgroundWithLipgloss(toMarkdown(msg, isFocused, width), t.Background()),
+		styles.ForceReplaceBackgroundWithLipgloss(toMarkdown(msg, isFocused, max(1, width-3)), t.BackgroundSecondary()),
 	}
 
 	// Remove newline at the end
@@ -76,7 +78,7 @@ func renderMessage(msg string, isUser bool, isFocused bool, width int, info ...s
 		),
 	)
 
-	return rendered
+	return styles.Surface(rendered, t.BackgroundSecondary())
 }
 
 func renderUserMessage(msg message.Message, isFocused bool, width int, position int) uiMessage {
@@ -118,7 +120,7 @@ func renderAssistantMessage(
 	msg message.Message,
 	msgIndex int,
 	allMessages []message.Message, // we need this to get tool results and the user message
-	messagesService message.Service, // We need this to get the task tool messages
+	taskHistory map[string][]message.Message,
 	focusedUIMessageId string,
 	isSummary bool,
 	width int,
@@ -141,25 +143,25 @@ func renderAssistantMessage(
 		case message.FinishReasonEndTurn:
 			took := formatTimestampDiff(msg.CreatedAt, finishData.Time)
 			info = append(info, baseStyle.
-				Width(width-1).
+				Width(max(1, width-3)).
 				Foreground(t.TextMuted()).
 				Render(fmt.Sprintf(" %s (%s)", models.SupportedModels[msg.Model].Name, took)),
 			)
 		case message.FinishReasonCanceled:
 			info = append(info, baseStyle.
-				Width(width-1).
+				Width(max(1, width-3)).
 				Foreground(t.TextMuted()).
 				Render(fmt.Sprintf(" %s (%s)", models.SupportedModels[msg.Model].Name, "canceled")),
 			)
 		case message.FinishReasonError:
 			info = append(info, baseStyle.
-				Width(width-1).
+				Width(max(1, width-3)).
 				Foreground(t.TextMuted()).
 				Render(fmt.Sprintf(" %s (%s)", models.SupportedModels[msg.Model].Name, "error")),
 			)
 		case message.FinishReasonPermissionDenied:
 			info = append(info, baseStyle.
-				Width(width-1).
+				Width(max(1, width-3)).
 				Foreground(t.TextMuted()).
 				Render(fmt.Sprintf(" %s (%s)", models.SupportedModels[msg.Model].Name, "permission denied")),
 			)
@@ -170,7 +172,7 @@ func renderAssistantMessage(
 			content = "*Finished without output*"
 		}
 		if isSummary {
-			info = append(info, baseStyle.Width(width-1).Foreground(t.TextMuted()).Render(" (summary)"))
+			info = append(info, baseStyle.Width(max(1, width-3)).Foreground(t.TextMuted()).Render(" (summary)"))
 		}
 
 		content = renderMessage(content, false, true, width, info...)
@@ -184,15 +186,17 @@ func renderAssistantMessage(
 		position += messages[0].height
 		position++ // for the space
 	} else if thinking && thinkingContent != "" {
-		// Render the thinking content
-		content = renderMessage(thinkingContent, false, msg.ID == focusedUIMessageId, width)
+		// Reasoning can be very large. Keep its live indicator compact instead
+		// of formatting the entire hidden reasoning transcript on every update.
+		content = baseStyle.Width(width).Foreground(t.Warning()).Render("Thinking…")
+		messages = append(messages, uiMessage{ID: msg.ID, messageType: assistantMessageType, position: position, height: 1, content: content})
 	}
 
 	for i, toolCall := range msg.ToolCalls() {
 		toolCallContent := renderToolMessage(
 			toolCall,
 			allMessages,
-			messagesService,
+			taskHistory[toolCall.ID],
 			focusedUIMessageId,
 			false,
 			width,
@@ -274,13 +278,12 @@ func getToolAction(name string) string {
 
 // renders params, params[0] (params[1]=params[2] ....)
 func renderParams(paramsWidth int, params ...string) string {
+	paramsWidth = max(1, paramsWidth)
 	if len(params) == 0 {
 		return ""
 	}
 	mainParam := params[0]
-	if len(mainParam) > paramsWidth {
-		mainParam = mainParam[:paramsWidth-3] + "..."
-	}
+	mainParam = ansi.Truncate(mainParam, paramsWidth, "…")
 
 	if len(params) == 1 {
 		return mainParam
@@ -535,12 +538,15 @@ func renderToolResponse(toolCall message.ToolCall, response message.ToolResult, 
 func renderToolMessage(
 	toolCall message.ToolCall,
 	allMessages []message.Message,
-	messagesService message.Service,
+	taskMessages []message.Message,
 	focusedUIMessageId string,
 	nested bool,
 	width int,
 	position int,
 ) uiMessage {
+	if toolCall.Name == agent.AgentToolName {
+		return renderAgentCard(toolCall, allMessages, taskMessages, width, position)
+	}
 	if nested {
 		width = width - 3
 	}
@@ -549,11 +555,15 @@ func renderToolMessage(
 	baseStyle := styles.BaseStyle()
 
 	style := baseStyle.
-		Width(width - 1).
+		Width(max(1, width)).
+		Background(t.BackgroundSecondary()).
+		Padding(1, 1).
 		BorderLeft(true).
 		BorderStyle(lipgloss.ThickBorder()).
 		PaddingLeft(1).
 		BorderForeground(t.TextMuted())
+	// Leave room for the accent border and horizontal padding.
+	width--
 
 	response := findToolResponse(toolCall.ID, allMessages)
 	toolNameText := baseStyle.Foreground(t.TextMuted()).
@@ -610,17 +620,6 @@ func renderToolMessage(
 		parts = append(parts, lipgloss.JoinHorizontal(lipgloss.Left, prefix, toolNameText, formattedParams))
 	}
 
-	if toolCall.Name == agent.AgentToolName {
-		taskMessages, _ := messagesService.List(context.Background(), toolCall.ID)
-		toolCalls := []message.ToolCall{}
-		for _, v := range taskMessages {
-			toolCalls = append(toolCalls, v.ToolCalls()...)
-		}
-		for _, call := range toolCalls {
-			rendered := renderToolMessage(call, []message.Message{}, messagesService, focusedUIMessageId, true, width, 0)
-			parts = append(parts, rendered.content)
-		}
-	}
 	if responseContent != "" && !nested {
 		parts = append(parts, responseContent)
 	}
@@ -641,9 +640,56 @@ func renderToolMessage(
 		messageType: toolMessageType,
 		position:    position,
 		height:      lipgloss.Height(content),
-		content:     content,
+		content:     styles.ForceReplaceBackgroundWithLipgloss(content, t.BackgroundSecondary()),
 	}
 	return toolMsg
+}
+
+func renderAgentCard(call message.ToolCall, history []message.Message, children []message.Message, width, position int) uiMessage {
+	t := theme.CurrentTheme()
+	var params agent.AgentParams
+	_ = json.Unmarshal([]byte(call.Input), &params)
+	role := params.Role
+	if role == "" {
+		role = "explore"
+	}
+	state := "Queued"
+	if agent.IsTaskRunning(call.ID) {
+		state = "Working"
+	}
+	result := findToolResponse(call.ID, history)
+	if result != nil {
+		state = "Done"
+		if result.IsError {
+			state = "Failed"
+		}
+	}
+	latest := "Waiting to start"
+	if len(children) > 0 {
+		for _, child := range children {
+			if child.Role != message.Assistant {
+				continue
+			}
+			if child.Content().Text != "" {
+				latest = child.Content().Text
+			}
+			if child.IsThinking() {
+				latest = "Thinking…"
+			}
+			for _, tool := range child.ToolCalls() {
+				latest = toolName(tool.Name) + " · " + renderToolParams(max(1, width-8), tool)
+			}
+		}
+	}
+	inner := max(1, width-3)
+	base := styles.BaseStyle().Background(t.BackgroundSecondary())
+	line := func(text string) string { return ansi.Truncate(strings.Join(strings.Fields(text), " "), inner, "…") }
+	title := base.Foreground(t.Primary()).Bold(true).Render(line(role + " · " + params.Prompt))
+	activity := base.Foreground(t.TextMuted()).Render(line("↳ " + latest))
+	hint := base.Foreground(t.TextMuted()).Render(line(state + " · click to open"))
+	content := base.Width(max(1, width)).Padding(0, 1).Border(lipgloss.ThickBorder(), false, false, false, true).BorderForeground(t.Primary()).Render(strings.Join([]string{title, activity, hint}, "\n"))
+	content = styles.Surface(content, t.BackgroundSecondary())
+	return uiMessage{ID: call.ID, taskID: call.ID, messageType: toolMessageType, position: position, height: lipgloss.Height(content), content: content}
 }
 
 // Helper function to format the time difference between two Unix timestamps
