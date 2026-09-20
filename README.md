@@ -38,11 +38,37 @@ Catalog search needs a valid skills.sh API token. Local and Git skill installati
 
 Subagents support read-only research/review and writable implementation roles. A batch runs up to three children concurrently.
 The parent waits for the batch. Workers keep saved IDs and accept follow-ups.
-Writable workers and isolated worktrees remain outside this implementation.
+Implementation workers can edit assigned files. Isolated worktrees remain outside this implementation.
 
 ## Get started
 
-Install Go **1.27.1** or later and Git. Then build OwnCode:
+### Homebrew (macOS and Linux)
+
+```bash
+brew install muratmirgun/tap/owncode
+owncode
+```
+
+### Download installer (macOS and Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/muratmirgun/owncode/main/install -o /tmp/owncode-install
+bash /tmp/owncode-install
+```
+
+The installer checks SHA-256 before installing into `~/.owncode/bin`.
+It prints the required PATH setting and does not modify shell startup files.
+Use `--version v0.1.0` to pin a release, or `--install-dir PATH` to choose a directory.
+
+### Release downloads
+
+Download the archive for your system from [GitHub Releases](https://github.com/muratmirgun/owncode/releases/latest).
+The release contains macOS and Linux binaries for arm64 and x86_64, Debian/RPM packages, and `checksums.txt`.
+Git is required for repository operations. Windows binaries are not provided.
+
+### Build from source
+
+Install Go **1.27.1** or later and Git:
 
 ```bash
 git clone https://github.com/muratmirgun/owncode.git
@@ -50,6 +76,8 @@ cd owncode
 go build -o bin/owncode .
 ./bin/owncode
 ```
+
+You can also use `go install github.com/muratmirgun/owncode@latest` after a tagged release.
 
 The interface opens without a provider. OwnCode preserves your draft and blocks sending until you configure a model.
 
@@ -62,7 +90,7 @@ For a custom endpoint, add its configuration to `~/.owncode.json` before startin
 Use the [compatible provider example](docs/theykk.example.json) as a template.
 Replace its key and machine-specific MCP path. Keep credentials outside the repository.
 
-The executable stays at `bin/owncode`. Add that directory to your `PATH` to use `owncode` from other directories.
+Source builds place the executable at `bin/owncode`. Homebrew adds `owncode` to your PATH.
 
 ```bash
 # Work in another project.

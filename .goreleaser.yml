@@ -1,57 +1,56 @@
 version: 2
 project_name: owncode
-before:
-  hooks:
 builds:
-  - env:
+  - id: owncode
+    binary: owncode
+    main: .
+    env:
       - CGO_ENABLED=0
-    goos:
-      - linux
-      - darwin
-    goarch:
-      - amd64
-      - arm64
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
     ldflags:
       - -s -w -X github.com/muratmirgun/owncode/internal/version.Version={{.Version}}
-    main: ./main.go
-
 archives:
   - formats: [tar.gz]
-    name_template: >-
-      owncode-
-      {{- if eq .Os "darwin" }}mac-
-      {{- else if eq .Os "windows" }}windows-
-      {{- else if eq .Os "linux" }}linux-{{end}}
-      {{- if eq .Arch "amd64" }}x86_64
-      {{- else if eq .Arch "#86" }}i386
-      {{- else }}{{ .Arch }}{{ end }}
-      {{- if .Arm }}v{{ .Arm }}{{ end }}
-    format_overrides:
-      - goos: windows
-        formats: [zip]
+    name_template: 'owncode-{{ if eq .Os "darwin" }}mac{{ else }}{{ .Os }}{{ end }}-{{ if eq .Arch "amd64" }}x86_64{{ else }}{{ .Arch }}{{ end }}'
+    files:
+      - LICENSE
+      - README.md
+      - docs/witch.md
+      - docs/licenses/Witch-LICENSE
 checksum:
-  name_template: "checksums.txt"
+  name_template: checksums.txt
 snapshot:
-  version_template: "0.0.0-{{ .Timestamp }}"
+  version_template: '0.0.0-dev-{{ .ShortCommit }}'
 nfpms:
-  - maintainer: muratmirgun
-    description: terminal based agent that can build anything
-    formats:
-      - deb
-      - rpm
-    file_name_template: >-
-      {{ .ProjectName }}-
-      {{- if eq .Os "darwin" }}mac
-      {{- else }}{{ .Os }}{{ end }}-{{ .Arch }}
+  - id: packages
+    maintainer: muratmirgun <muratmirgun@users.noreply.github.com>
+    homepage: https://github.com/muratmirgun/owncode
+    description: Terminal coding agent with Witch orchestration and configurable context compaction
+    license: MIT
+    formats: [deb, rpm]
+    dependencies: [git]
+    file_name_template: '{{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}'
+release:
+  github:
+    owner: muratmirgun
+    name: owncode
+  header: |
+    OwnCode is an experimental terminal coding agent, developed from the original OpenCode fork.
 
+    It includes Build and Plan profiles, built-in Witch orchestration, per-role model and reasoning settings,
+    and several context compaction methods, including the experimental Jev Compact Engine.
+
+    **Homebrew:** `brew install muratmirgun/tap/owncode`
+
+    **Installer:** download `install` from this repository, then run it with Bash.
+    See the [installation guide](https://github.com/muratmirgun/owncode#get-started) for all options.
+
+    Archives support macOS and Linux on arm64 and x86_64. Verify downloads against `checksums.txt`.
+  draft: false
+  prerelease: auto
 changelog:
   sort: asc
   filters:
-    exclude:
-      - "^docs:"
-      - "^doc:"
-      - "^test:"
-      - "^ci:"
-      - "^ignore:"
-      - "^example:"
-      - "^wip:"
+    exclude: ['^docs:', '^test:', '^ci:']
