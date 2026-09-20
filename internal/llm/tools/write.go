@@ -28,7 +28,7 @@ type WritePermissionsParams struct {
 }
 
 type writeTool struct {
-	lspClients  map[string]*lsp.Client
+	lspClients  *lsp.Registry
 	permissions permission.Service
 	files       history.Service
 }
@@ -71,7 +71,7 @@ TIPS:
 - Always include descriptive comments when making changes to existing code`
 )
 
-func NewWriteTool(lspClients map[string]*lsp.Client, permissions permission.Service, files history.Service) BaseTool {
+func NewWriteTool(lspClients *lsp.Registry, permissions permission.Service, files history.Service) BaseTool {
 	return &writeTool{
 		lspClients:  lspClients,
 		permissions: permissions,
@@ -212,11 +212,11 @@ func (w *writeTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error
 
 	recordFileWrite(filePath)
 	recordFileRead(filePath)
-	waitForLspDiagnostics(ctx, filePath, w.lspClients)
+	waitForLspDiagnostics(ctx, filePath, w.lspClients.Snapshot())
 
 	result := fmt.Sprintf("File successfully written: %s", filePath)
 	result = fmt.Sprintf("<result>\n%s\n</result>", result)
-	result += getDiagnostics(filePath, w.lspClients)
+	result += getDiagnostics(filePath, w.lspClients.Snapshot())
 	return WithResponseMetadata(NewTextResponse(result),
 		WriteResponseMetadata{
 			Diff:      diff,

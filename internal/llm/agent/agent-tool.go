@@ -4,22 +4,65 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/llm/tools"
+	"github.com/muratmirgun/owncode/internal/logging"
 	"github.com/muratmirgun/owncode/internal/lsp"
 	"github.com/muratmirgun/owncode/internal/message"
 	"github.com/muratmirgun/owncode/internal/session"
 )
 
 var runningTasks sync.Map
+var taskInboxes sync.Map
+
+type taskInbox struct {
+	mu      sync.Mutex
+	pending []string
+	closed  bool
+}
+
+// SteerTask queues a follow-up for the next turn of an active read-only worker.
+func SteerTask(id, prompt string) error {
+	if strings.TrimSpace(prompt) == "" || len(prompt) > 16000 {
+		return fmt.Errorf("follow-up must contain 1–16000 bytes")
+	}
+	value, ok := taskInboxes.Load(id)
+	if !ok {
+		return fmt.Errorf("worker is idle; resume it with the agent tool and worker_id")
+	}
+	box := value.(*taskInbox)
+	box.mu.Lock()
+	defer box.mu.Unlock()
+	if box.closed {
+		return fmt.Errorf("worker just finished; resume it with worker_id")
+	}
+	if len(box.pending) >= 8 {
+		return fmt.Errorf("worker already has eight queued follow-ups")
+	}
+	box.pending = append(box.pending, prompt)
+	return nil
+}
+func (b *taskInbox) next() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.pending) == 0 {
+		b.closed = true
+		return ""
+	}
+	prompt := strings.Join(b.pending, "\n\n")
+	b.pending = nil
+	return prompt
+}
 
 type agentTool struct {
 	costMu     sync.Mutex
 	sessions   session.Service
 	messages   message.Service
-	lspClients map[string]*lsp.Client
+	lspClients *lsp.Registry
 }
 
 const (
@@ -27,16 +70,18 @@ const (
 )
 
 type AgentParams struct {
-	Prompt string `json:"prompt"`
-	Role   string `json:"role,omitempty"`
+	Prompt   string `json:"prompt"`
+	WorkerID string `json:"worker_id,omitempty"`
+	Role     string `json:"role,omitempty"`
 }
 
 func (b *agentTool) Info() tools.ToolInfo {
 	return tools.ToolInfo{
 		Name:        AgentToolName,
-		Description: "Launch a new agent that has access to the following tools: GlobTool, GrepTool, LS, View. When you are searching for a keyword or file and are not confident that you will find the right match on the first try, use the Agent tool to perform the search for you. For example:\n\n- If you are searching for a keyword like \"config\" or \"logger\", or for questions like \"which file does X?\", the Agent tool is strongly recommended\n- If you want to read a specific file path, use the View or GlobTool tool instead of the Agent tool, to find the match more quickly\n- If you are searching for a specific class definition like \"class Foo\", use the GlobTool tool instead, to find the match more quickly\n\nUsage notes:\n1. Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses\n2. When the agent is done, it will return a single message back to you. The user can inspect the task and result in /agents. To show the user the result, you should send a text message back to the user with a concise summary of the result.\n3. Each agent invocation is stateless. You will not be able to send additional messages to the agent, nor will the agent be able to communicate with you outside of its final report. Therefore, your prompt should contain a highly detailed task description for the agent to perform autonomously and you should specify exactly what information the agent should return back to you in its final and only message to you.\n4. The agent's outputs should generally be trusted\n5. IMPORTANT: The agent can not use Bash, Replace, Edit, so can not modify files. If you want to use these tools, use them directly instead of going through the agent.",
+		Description: "Delegate a focused task to a read-only explore/review worker. Multiple agent calls in one response run concurrently, up to three workers. The result includes a worker_id. Pass that ID with a new prompt to resume the same saved history, including after restart. Workers cannot edit files or run shell commands. The user can inspect, cancel, or queue follow-ups in /agents. Do not resume an active worker; the user can steer it through /agents.",
 		Parameters: map[string]any{
-			"role": map[string]any{"type": "string", "enum": []string{"explore", "review"}, "description": "Read-only exploration or code review. Defaults to explore."},
+			"worker_id": map[string]any{"type": "string", "description": "Existing worker ID from this parent session; omit to start a worker."},
+			"role":      map[string]any{"type": "string", "enum": []string{"explore", "review"}, "description": "Read-only exploration or code review. Defaults to explore."},
 			"prompt": map[string]any{
 				"type":        "string",
 				"description": "The task for the agent to perform",
@@ -71,54 +116,82 @@ func (b *agentTool) Run(ctx context.Context, call tools.ToolCall) (tools.ToolRes
 		return tools.ToolResponse{}, fmt.Errorf("error creating agent: %s", err)
 	}
 
-	session, err := b.sessions.CreateTaskSession(ctx, call.ID, sessionID, params.Role+": "+params.Prompt)
-	if err != nil {
-		return tools.ToolResponse{}, fmt.Errorf("error creating session: %s", err)
+	var child session.Session
+	if params.WorkerID != "" {
+		child, err = b.sessions.Get(ctx, params.WorkerID)
+		if err != nil || child.ParentSessionID != sessionID {
+			return tools.NewTextErrorResponse("worker does not belong to this session"), nil
+		}
+		history, err := b.messages.List(ctx, sessionID)
+		if err != nil {
+			return tools.ToolResponse{}, err
+		}
+		if !ownsWorker(history, child.ID) {
+			return tools.NewTextErrorResponse("worker has no active launch record in this session"), nil
+		}
+	} else {
+		child, err = b.sessions.CreateTaskSession(ctx, call.ID, sessionID, params.Role+": "+params.Prompt)
+		if err != nil {
+			return tools.ToolResponse{}, fmt.Errorf("create worker: %w", err)
+		}
 	}
-
 	taskCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	runningTasks.Store(call.ID, cancel)
-	defer runningTasks.Delete(call.ID)
-	done, err := agent.Run(taskCtx, session.ID, taskPrompt(params))
-	if err != nil {
-		return tools.ToolResponse{}, fmt.Errorf("error generating agent: %s", err)
+	if _, running := runningTasks.LoadOrStore(child.ID, cancel); running {
+		return tools.NewTextErrorResponse("worker is already running"), nil
 	}
-	result := <-done
-	if result.Error != nil {
-		return tools.ToolResponse{}, fmt.Errorf("error generating agent: %s", result.Error)
+	defer runningTasks.Delete(child.ID)
+	inbox := &taskInbox{}
+	taskInboxes.Store(child.ID, inbox)
+	defer taskInboxes.Delete(child.ID)
+	defer func() {
+		accountCtx, accountCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer accountCancel()
+		b.costMu.Lock()
+		defer b.costMu.Unlock()
+		updated, err := b.sessions.Get(accountCtx, child.ID)
+		if err != nil {
+			return
+		}
+		parent, err := b.sessions.Get(accountCtx, sessionID)
+		if err != nil {
+			return
+		}
+		parent.Cost += max(0, updated.Cost-child.Cost)
+		if _, err := b.sessions.Save(accountCtx, parent); err != nil {
+			logging.Warn("Worker cost update failed", "error", err)
+		}
+	}()
+	prompt := taskPrompt(params)
+	var response message.Message
+	for {
+		done, err := agent.Run(taskCtx, child.ID, prompt)
+		if err != nil {
+			return tools.ToolResponse{}, fmt.Errorf("start worker: %w", err)
+		}
+		result := <-done // Run owns this channel and sends after cancellation too.
+		if result.Error != nil {
+			return tools.ToolResponse{}, fmt.Errorf("worker %s: %w", child.ID, result.Error)
+		}
+		response = result.Message
+		if err := taskCtx.Err(); err != nil {
+			return tools.ToolResponse{}, err
+		}
+		prompt = inbox.next()
+		if prompt == "" {
+			break
+		}
 	}
-
-	response := result.Message
 	if response.Role != message.Assistant {
 		return tools.NewTextErrorResponse("no response"), nil
 	}
-
-	updatedSession, err := b.sessions.Get(ctx, session.ID)
-	if err != nil {
-		return tools.ToolResponse{}, fmt.Errorf("error getting session: %s", err)
-	}
-	// Serialize the parent cost update so concurrent children do not lose charges.
-	b.costMu.Lock()
-	defer b.costMu.Unlock()
-	parentSession, err := b.sessions.Get(ctx, sessionID)
-	if err != nil {
-		return tools.ToolResponse{}, fmt.Errorf("error getting parent session: %s", err)
-	}
-
-	parentSession.Cost += updatedSession.Cost
-
-	_, err = b.sessions.Save(ctx, parentSession)
-	if err != nil {
-		return tools.ToolResponse{}, fmt.Errorf("error saving parent session: %s", err)
-	}
-	return tools.NewTextResponse(response.Content().String()), nil
+	return tools.NewTextResponse("worker_id: " + child.ID + "\n\n" + response.Content().String()), nil
 }
 
 func NewAgentTool(
 	Sessions session.Service,
 	Messages message.Service,
-	LspClients map[string]*lsp.Client,
+	LspClients *lsp.Registry,
 ) tools.BaseTool {
 	return &agentTool{
 		sessions:   Sessions,
@@ -147,4 +220,24 @@ func CancelTask(id string) bool {
 		value.(context.CancelFunc)()
 	}
 	return running
+}
+
+// TaskID resolves a tool invocation to its persistent child session.
+func TaskID(call message.ToolCall) string {
+	var p AgentParams
+	if json.Unmarshal([]byte(call.Input), &p) == nil && p.WorkerID != "" {
+		return p.WorkerID
+	}
+	return call.ID
+}
+
+func ownsWorker(history []message.Message, id string) bool {
+	for _, msg := range history {
+		for _, call := range msg.ToolCalls() {
+			if call.Name == AgentToolName && call.ID == id {
+				return true
+			}
+		}
+	}
+	return false
 }

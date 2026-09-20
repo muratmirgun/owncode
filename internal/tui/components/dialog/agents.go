@@ -7,10 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
 	"github.com/muratmirgun/owncode/internal/app"
 	"github.com/muratmirgun/owncode/internal/llm/agent"
 	"github.com/muratmirgun/owncode/internal/message"
@@ -20,6 +22,7 @@ import (
 )
 
 type CloseAgentsMsg struct{}
+type WorkerFollowupMsg string
 type AgentParentMsg string
 type agentRefreshMsg struct{ generation int }
 type agentRowsMsg struct {
@@ -40,12 +43,17 @@ type agentsCmp struct {
 	width, height, selected int
 	rows                    []agentRow
 	details                 bool
+	composing               bool
+	input                   textinput.Model
 	viewport                viewport.Model
 	err                     error
 }
 
 func NewAgentsCmp(app *app.App) util.Model {
-	return &agentsCmp{app: app, viewport: viewport.New()}
+	input := textinput.New()
+	input.Placeholder = "Follow-up for this worker…"
+	input.CharLimit = 16000
+	return &agentsCmp{app: app, viewport: viewport.New(), input: input}
 }
 
 func (a *agentsCmp) Init() tea.Cmd { return nil }
@@ -81,6 +89,36 @@ func (a *agentsCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 		generation := a.generation
 		return a, tea.Tick(time.Second, func(time.Time) tea.Msg { return agentRefreshMsg{generation} })
 	case tea.KeyPressMsg:
+		if a.composing {
+			switch msg.String() {
+			case "esc":
+				a.composing = false
+				return a, nil
+			case "enter":
+				if len(a.rows) == 0 {
+					return a, nil
+				}
+				id := a.rows[a.selected].id
+				prompt := strings.TrimSpace(a.input.Value())
+				if prompt == "" {
+					return a, nil
+				}
+				if agent.IsTaskRunning(id) {
+					if err := agent.SteerTask(id, prompt); err != nil {
+						return a, util.ReportError(err)
+					}
+					a.composing = false
+					return a, util.ReportInfo("Follow-up queued after the current worker turn")
+				}
+				a.composing = false
+				// The primary turn records the follow-up and owns cost, cancellation, and delivery.
+				content := fmt.Sprintf("Resume worker %q with the agent tool (worker_id) and this follow-up:\n%s", id, prompt)
+				return a, util.CmdHandler(WorkerFollowupMsg(content))
+			}
+			var cmd tea.Cmd
+			a.input, cmd = a.input.Update(msg)
+			return a, cmd
+		}
 		if a.details {
 			if msg.String() == "esc" || msg.String() == "enter" {
 				a.details = false
@@ -93,6 +131,12 @@ func (a *agentsCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 		switch msg.String() {
 		case "esc":
 			return a, util.CmdHandler(CloseAgentsMsg{})
+		case "f":
+			if len(a.rows) > 0 {
+				a.composing = true
+				a.input.SetValue("")
+				return a, a.input.Focus()
+			}
 		case "c":
 			if len(a.rows) > 0 && agent.CancelTask(a.rows[a.selected].id) {
 				return a, util.ReportInfo("Agent cancellation requested")
@@ -158,6 +202,7 @@ func (a *agentsCmp) load() tea.Cmd {
 func collectAgentRows(messages []message.Message, running func(string) bool) []agentRow {
 	var rows []agentRow
 	index := map[string]int{}
+	workers := map[string]int{}
 	for _, msg := range messages {
 		for _, call := range msg.ToolCalls() {
 			if call.Name != agent.AgentToolName {
@@ -174,11 +219,19 @@ func collectAgentRows(messages []message.Message, running func(string) bool) []a
 			}
 			title := role + " · " + strings.Join(strings.Fields(params.Prompt), " ")
 			state := "Interrupted"
-			if running(call.ID) {
+			id := agent.TaskID(call)
+			if running(id) {
 				state = "Working"
 			}
+			if i, exists := workers[id]; exists {
+				index[call.ID] = i
+				rows[i].state = state
+				rows[i].detail += "\n\nFollow-up\n" + params.Prompt
+				continue
+			}
+			workers[id] = len(rows)
 			index[call.ID] = len(rows)
-			rows = append(rows, agentRow{id: call.ID, title: title, state: state, detail: "Task\n" + params.Prompt})
+			rows = append(rows, agentRow{id: id, title: title, state: state, detail: "Task\n" + params.Prompt})
 		}
 		for _, part := range msg.Parts {
 			result, ok := part.(message.ToolResult)
@@ -209,6 +262,9 @@ func (a *agentsCmp) View() string {
 	title := base.Foreground(t.Text()).Bold(true).Render("Agents")
 	subtitle := "Read-only exploration · Results stay linked to this chat"
 	body := []string{}
+	if a.composing {
+		return base.Width(width).Padding(1, 2).Render("Worker follow-up\n\n" + a.input.View() + "\n\nenter queue / prepare resume · esc back")
+	}
 	if a.details && len(a.rows) > 0 {
 		title += "  /  " + a.rows[a.selected].state
 		body = append(body, a.viewport.View())
@@ -246,7 +302,7 @@ func (a *agentsCmp) View() string {
 			body = append(body, line(""), line(fmt.Sprintf("%d tokens · $%.4f · enter opens task and result", row.tokens, row.cost)))
 		}
 	}
-	hint := "↑/↓ select · enter details · c cancel task · esc back"
+	hint := "↑/↓ select · enter details · c cancel · f follow-up · esc back"
 	if a.details {
 		hint = "↑/↓ scroll · pgup/pgdown page · esc agents"
 	}

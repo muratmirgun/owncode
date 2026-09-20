@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/muratmirgun/owncode/internal/config"
 )
 
 func TestLsTool_Info(t *testing.T) {
@@ -24,6 +26,11 @@ func TestLsTool_Info(t *testing.T) {
 }
 
 func TestLsTool_Run(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home)
+	_, configErr := config.Load(home, false)
+	require.NoError(t, configErr)
 	// Create a temporary directory for testing
 	tempDir, err := os.MkdirTemp("", "ls_tool_test")
 	require.NoError(t, err)
@@ -192,6 +199,9 @@ func TestLsTool_Run(t *testing.T) {
 
 		// Change to a directory above the temp directory
 		parentDir := filepath.Dir(tempDir)
+		previous := config.Get().WorkingDir
+		config.Get().WorkingDir = parentDir
+		defer func() { config.Get().WorkingDir = previous }()
 		err = os.Chdir(parentDir)
 		require.NoError(t, err)
 

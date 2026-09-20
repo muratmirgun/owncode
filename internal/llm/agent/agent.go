@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/muratmirgun/owncode/internal/config"
+	"github.com/muratmirgun/owncode/internal/extension"
 	"github.com/muratmirgun/owncode/internal/llm/models"
 	"github.com/muratmirgun/owncode/internal/llm/prompt"
 	"github.com/muratmirgun/owncode/internal/llm/provider"
@@ -17,7 +19,9 @@ import (
 	"github.com/muratmirgun/owncode/internal/message"
 	"github.com/muratmirgun/owncode/internal/permission"
 	"github.com/muratmirgun/owncode/internal/pubsub"
+	"github.com/muratmirgun/owncode/internal/recovery"
 	"github.com/muratmirgun/owncode/internal/session"
+	"github.com/muratmirgun/owncode/internal/skills"
 )
 
 // Common errors
@@ -64,12 +68,15 @@ type agent struct {
 	sessions session.Service
 	messages message.Service
 
+	allTools []tools.BaseTool
+	name     config.AgentName
 	tools    []tools.BaseTool
 	provider provider.Provider
 
 	titleProvider     provider.Provider
 	summarizeProvider provider.Provider
 
+	recovery       *recovery.Service
 	activeRequests sync.Map
 }
 
@@ -84,7 +91,8 @@ func NewAgent(
 			Broker:   pubsub.NewBroker[AgentEvent](),
 			sessions: sessions,
 			messages: messages,
-			tools:    agentTools,
+			tools:    profileTools(agentName, agentTools),
+			allTools: agentTools, name: agentName,
 		}, nil
 	}
 	agentProvider, err := createAgentProvider(agentName)
@@ -108,11 +116,12 @@ func NewAgent(
 	}
 
 	agent := &agent{
-		Broker:            pubsub.NewBroker[AgentEvent](),
-		provider:          agentProvider,
-		messages:          messages,
-		sessions:          sessions,
-		tools:             agentTools,
+		Broker:   pubsub.NewBroker[AgentEvent](),
+		provider: agentProvider,
+		messages: messages,
+		sessions: sessions,
+		tools:    profileTools(agentName, agentTools),
+		allTools: agentTools, name: agentName,
 		titleProvider:     titleProvider,
 		summarizeProvider: summarizeProvider,
 		activeRequests:    sync.Map{},
@@ -229,7 +238,52 @@ func (a *agent) Run(ctx context.Context, sessionID string, content string, attac
 		for _, attachment := range attachments {
 			attachmentParts = append(attachmentParts, message.BinaryContent{Path: attachment.FilePath, MIMEType: attachment.MimeType, Data: attachment.Content})
 		}
+		var checkpoint int64
+		if a.recovery != nil {
+			var err error
+			checkpoint, err = a.recovery.Begin(genCtx, sessionID)
+			if err != nil {
+				logging.Warn("Checkpoint unavailable", "error", err)
+			}
+		}
 		result := a.processGeneration(genCtx, sessionID, content, attachmentParts)
+		if checkpoint != 0 {
+			saveCtx, done := context.WithTimeout(context.WithoutCancel(genCtx), 20*time.Second)
+			if err := a.recovery.Finish(saveCtx, checkpoint, sessionID); err != nil {
+				logging.Warn("Checkpoint completion failed", "error", err)
+			}
+			done()
+		}
+		if a.name == config.AgentCoder && genCtx.Err() == nil {
+			hookCtx, stopHooks := context.WithTimeout(genCtx, 2*time.Second)
+			outcome := "completed"
+			if result.Error != nil {
+				outcome = "failed"
+			}
+			count := 0
+			hookNames := make([]string, 0, len(config.Get().Extensions))
+			for name := range config.Get().Extensions {
+				hookNames = append(hookNames, name)
+			}
+			sort.Strings(hookNames)
+			for _, name := range hookNames {
+				hook := config.Get().Extensions[name]
+				if !hook.Enabled {
+					continue
+				}
+				count++
+				if count > 4 {
+					break
+				}
+				reply, err := extension.Run(hookCtx, hook, extension.Event{Type: "turn.complete", SessionID: sessionID, Model: string(a.Model().ID), Outcome: outcome}, config.WorkingDirectory())
+				if err != nil {
+					logging.Warn("Extension failed", "extension", name, "error", err)
+				} else if reply.Notice != "" {
+					logging.Info("Extension notice", "extension", name, "notice", reply.Notice)
+				}
+			}
+			stopHooks()
+		}
 		result.SessionID = sessionID
 		if result.Error != nil && !errors.Is(result.Error, ErrRequestCancelled) && !errors.Is(result.Error, context.Canceled) {
 			logging.ErrorPersist(result.Error.Error())
@@ -268,6 +322,10 @@ func (a *agent) processGeneration(ctx context.Context, sessionID, content string
 	}
 	msgs = activeSummaryMessages(msgs, session.SummaryMessageID)
 
+	content, err = skills.ExpandInvocation(ctx, config.WorkingDirectory(), content)
+	if err != nil {
+		return a.err(err)
+	}
 	userMsg, err := a.createUserMessage(ctx, sessionID, content, attachmentParts)
 	if err != nil {
 		return a.err(fmt.Errorf("failed to create user message: %w", err))
@@ -558,6 +616,12 @@ func (a *agent) Reload() error {
 		return err
 	}
 	a.provider, a.titleProvider, a.summarizeProvider = coder, title, summary
+	for i, tool := range a.allTools {
+		if tool.Info().Name == "skill" {
+			a.allTools[i] = tools.NewSkillTool(config.WorkingDirectory())
+		}
+	}
+	a.tools = profileTools(a.name, a.allTools)
 	return nil
 }
 
@@ -801,6 +865,18 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 	if !ok {
 		return nil, fmt.Errorf("agent %s not found", agentName)
 	}
+	profilePrompt := ""
+	if agentName == config.AgentCoder {
+		_, profile := config.CurrentProfile()
+		if profile.Model != "" {
+			agentConfig.Model = profile.Model
+			agentConfig.MaxTokens = models.SupportedModels[profile.Model].DefaultMaxTokens
+		}
+		if profile.Reasoning != "" {
+			agentConfig.ReasoningEffort = profile.Reasoning
+		}
+		profilePrompt = profile.Prompt
+	}
 	model, ok := models.SupportedModels[agentConfig.Model]
 	if !ok {
 		return nil, fmt.Errorf("model %s not supported", agentConfig.Model)
@@ -820,7 +896,7 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 	opts := []provider.ProviderClientOption{
 		provider.WithAPIKey(providerCfg.APIKey),
 		provider.WithModel(model),
-		provider.WithSystemMessage(prompt.GetAgentPrompt(agentName, model.Provider)),
+		provider.WithSystemMessage(prompt.GetAgentPrompt(agentName, model.Provider) + "\n" + profilePrompt),
 		provider.WithMaxTokens(maxTokens),
 	}
 	if model.Provider == models.ProviderOpenAI || model.Provider == models.ProviderLocal && model.CanReason {
@@ -859,3 +935,36 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 
 	return agentProvider, nil
 }
+
+// profileTools applies restrictions before exposing or dispatching any tool.
+func profileTools(name config.AgentName, available []tools.BaseTool) []tools.BaseTool {
+	if name != config.AgentCoder {
+		return available
+	}
+	_, profile := config.CurrentProfile()
+	readOnly := map[string]bool{"view": true, "ls": true, "glob": true, "grep": true, "sourcegraph": true, "diagnostics": true, "lsp": true, "skill": true, "agent": true, "ask": true}
+	selected := make([]tools.BaseTool, 0, len(available))
+	for _, tool := range available {
+		name := tool.Info().Name
+		if profile.ReadOnly && !readOnly[name] {
+			continue
+		}
+		if profile.Tools != nil {
+			found := false
+			for _, allowed := range profile.Tools {
+				if allowed == name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+		selected = append(selected, tool)
+	}
+	return selected
+}
+
+// SetRecovery connects primary turns to persistent checkpoints before execution starts.
+func (a *agent) SetRecovery(service *recovery.Service) { a.recovery = service }

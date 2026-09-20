@@ -175,9 +175,9 @@ func (p *chatPage) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 		p.completionDialog = context.(dialog.CompletionDialog)
 		cmds = append(cmds, contextCmd)
 
-		// Doesn't forward event if enter key is pressed
+		// Keep selection keys inside the file completion dialog.
 		if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
-			if keyMsg.String() == "enter" {
+			if keyMsg.String() == "enter" || keyMsg.String() == "tab" {
 				return p, tea.Batch(cmds...)
 			}
 		}

@@ -1,733 +1,471 @@
 # OwnCode
 
-OwnCode is a personal terminal AI assistant, developed from the archived Go version of [OpenCode](https://github.com/opencode-ai/opencode).
-This repository continues that older codebase as an independent fork.
-The original project later continued as [Crush](https://github.com/charmbracelet/crush).
+**A terminal coding assistant with visible tool activity, parallel exploration, and configurable context compaction.**
 
-The first step is to rename the application and establish a working local build.
-Future work will connect our Compact Engine and custom tools.
-Compact Engine is not integrated yet. The current auto-compact feature comes from the original codebase.
+OwnCode helps you inspect a project, change code, and continue saved conversations from your terminal.
+It combines a Go application with a Bubble Tea v2 interface and local SQLite storage.
 
-This project is experimental. The inherited providers and model catalog need further validation.
-The original MIT license and copyright notice remain in [LICENSE](LICENSE).
+[Get started](#get-started) · [Configuration](#configuration) · [Context compaction](#context-compaction) · [Development](#development) · [Roadmap](docs/roadmap.md)
 
-See the [first-run report](docs/first-run.md) for checks, launch results, and inherited issues.
+## Project status
 
-## Features
+OwnCode is an experimental, independent fork of the archived [Go OpenCode project](https://github.com/opencode-ai/opencode).
+That project continued as [Crush](https://github.com/charmbracelet/crush).
+OwnCode retains its MIT license and attribution. It is separate from the current [OpenCode](https://opencode.ai) application.
 
-- **Interactive TUI**: Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) for a smooth terminal experience
-- **Multiple AI Providers**: Support for OpenAI, Anthropic Claude, Google Gemini, AWS Bedrock, Groq, Azure OpenAI, and OpenRouter
-- **Session Management**: Save and manage multiple conversation sessions
-- **Tool Integration**: AI can execute commands, search files, and modify code
-- **Vim-like Editor**: Integrated editor with text input capabilities
-- **Persistent Storage**: SQLite database for storing conversations and sessions
-- **LSP Integration**: Language Server Protocol support for code intelligence
-- **File Change Tracking**: Track and visualize file changes during sessions
-- **External Editor Support**: Open your preferred editor for composing messages
-- **Named Arguments for Custom Commands**: Create powerful custom commands with multiple named placeholders
+Use a source build while the project develops. Provider behavior depends on the endpoint and model.
+Skills, profiles, recovery, and metadata hooks are available as experimental features.
+Catalog search needs a valid skills.sh API token. Local and Git skill installation work without catalog access.
 
-## First run
+## What you can do
 
-Install Go 1.27.1 or later, then build from source:
+| Area | Current capabilities |
+| --- | --- |
+| Chat | Centered welcome screen, growing message input, prompt recall, and saved sessions |
+| Navigation | Searchable command palette, slash suggestions, model search, favorites, and recent models |
+| Models | ChatGPT account connection, Claude API connection, custom compatible endpoints, and supported reasoning controls |
+| Tools | Read, search, edit, write, patch, shell commands, URL fetches, and external MCP tools |
+| Changes | Boxed tool output, numbered diff previews, and inline approval choices |
+| Subagents | Parallel read-only exploration and review, compact activity cards, and live transcripts |
+| Context | Usage bar, estimated live TPS, response history, and five compaction methods |
+| Project context | Ancestor `AGENTS.md`, Markdown commands, and skills loaded on demand |
+| Skills | Project/user discovery, Git installation, previews, updates, rollback, and optional skills.sh search |
+| Agent profiles | Build, read-only Plan, and custom model/prompt/tool profiles |
+| Recovery | Turn checkpoints, file previews, undo/redo, and checks against later edits |
+| Code intelligence | LSP diagnostics, definitions, references, and document/workspace symbols |
+| Interaction | Inline questions, worker follow-ups, and saved worker IDs |
+| Extensions | Version 1 process hooks for completion metadata |
+
+Subagents currently run with read-only tools. A batch runs up to three children concurrently.
+The parent waits for the batch. Workers keep saved IDs and accept follow-ups.
+Writable workers and isolated worktrees remain outside this implementation.
+
+## Get started
+
+Install Go **1.27.1** or later and Git. Then build OwnCode:
 
 ```bash
 git clone https://github.com/muratmirgun/owncode.git
 cd owncode
 go build -o bin/owncode .
-./bin/owncode --help
-./bin/owncode --version
 ./bin/owncode
 ```
 
-OwnCode opens the terminal interface without a model or API key.
-It displays `No model configured` and blocks message sending and summarization until a provider is configured.
-Blocked messages remain in the editor; OwnCode does not create a session for them.
-Set a supported provider key, such as `ANTHROPIC_API_KEY`, in your shell before starting OwnCode.
-The inherited model list can contain retired models. Select an available model before sending a request.
+The interface opens without a provider. OwnCode preserves your draft and blocks sending until you configure a model.
 
-OwnCode has no published release yet. Use the source build for now.
-The `install` script targets this repository's future release assets.
+1. Enter `/connect` to connect a provider.
+2. Choose a ChatGPT account or a Claude API key.
+3. Enter `/models` to select an available model.
+4. Write a request and press `Enter`.
 
-### Custom providers and private settings
+For a custom endpoint, add its configuration to `~/.owncode.json` before starting OwnCode.
+Use the [compatible provider example](docs/theykk.example.json) as a template.
+Replace its key and machine-specific MCP path. Keep credentials outside the repository.
 
-OwnCode loads `.owncode.local.json` after `.owncode.json`.
-Local settings override project settings. Git ignores the local file.
-Use it for API keys and machine-specific MCP commands.
-Invalid local JSON stops startup with a configuration error.
+The executable stays at `bin/owncode`. Add that directory to your `PATH` to use `owncode` from other directories.
 
-See [the Theykk example](docs/theykk.example.json) for an OpenAI-compatible provider and MCP setup.
-Copy that example to `.owncode.local.json`, then replace the placeholder key locally.
-Do not commit real keys.
+```bash
+# Work in another project.
+./bin/owncode -c /path/to/project
 
-Custom models use `provider/model` IDs, such as `theykk/qwen38`.
-Set `baseURL` on the provider and define its `models` map.
-Each model needs `name`, `contextWindow`, and `maxTokens`.
-Set the model for `coder`, `task`, `summarizer`, and `title` under `agents`.
+# Resume a saved session in that project.
+./bin/owncode -c /path/to/project -s SESSION_ID
 
-Model `options` are sent as request fields, including sampling settings and `chat_template_kwargs`.
-`interleaved: "reasoning_content"` enables streamed reasoning and preserves it in later assistant messages.
-`attachments: true` enables image attachments.
-Custom endpoints receive `max_tokens`; OwnCode does not add OpenAI-specific `reasoning_effort` to those requests.
-MCP uses `mcpServers`, with `type: "stdio"`, a command string, and an optional argument list.
-This Go application does not load npm provider plugins.
+# Inspect supported flags.
+./bin/owncode --help
+```
 
-### Storage and migration
+When you exit a saved chat, OwnCode prints its title and a command to resume it.
+Sessions belong to the configured data directory. Use the same project directory when resuming.
 
-OwnCode uses `.owncode.json`, the `.owncode/` data directory, and `owncode.db`.
-It uses the `OWNCODE_` environment prefix and the `owncode` theme name.
-Use **Settings → Model → Reasoning** to select a supported reasoning level.
-Press **Alt+R** in chat to cycle levels quickly. The status line shows the active level.
-The choice persists and applies to the coding agent's next request. Wait for an active response before changing it.
-ChatGPT levels come from its model catalog. Reconnect once if the account was added before reasoning support.
-Compatible thinking models can expose on/off. Claude models with declared thinking support expose auto/off/on.
+## Daily controls
 
-It automatically reads `AGENTS.md` from ancestor directories through the working directory.
-Deeper instructions take precedence within their directory. `agents.md` is a fallback when `AGENTS.md` is absent.
-This works without a `contextPaths` entry, including when that setting is customized.
-The coding and task agents also receive instructions to check nested instruction files before working in those directories.
-Nested discovery is agent-driven; OwnCode does not load the entire directory tree into the initial prompt.
-Instruction files load when an agent provider is created. Restart OwnCode after changing them to refresh an active agent.
-OwnCode also reads configured project instructions such as `OwnCode.md` and `OWNCODE.md`.
-It does not automatically import old OpenCode settings or sessions.
-Copy the required settings manually, and change any explicit data paths and theme names.
-Keep provider keys outside this repository.
+| Control | Action |
+| --- | --- |
+| `Ctrl+P`, `Ctrl+K`, or `F1` | Open the searchable command palette |
+| `/` | Show built-in command suggestions |
+| `Ctrl+O` or `F2` | Open model search |
+| `Ctrl+S` or `F3` | Open saved sessions |
+| `Alt+R` or `F4` | Cycle the model's supported reasoning levels |
+| `Ctrl+N` | Start a new session |
+| `Enter` | Send the current message |
+| `Ctrl+E` | Compose in an external editor |
+| `↑` on the first input line | Recall an earlier sent prompt |
+| `↓` on the last input line | Move forward and restore your draft |
+| `Esc` | Close a dialog or cancel active work, depending on focus |
+| `Ctrl+C` | Open the exit confirmation |
+
+On Mac keyboards, you may need `Fn` for function keys.
+Typed commands remain available when your terminal intercepts shortcuts.
+Your terminal controls the font family and size.
+
+Use `/settings`, `/connect`, `/models`, `/themes`, `/sessions`, `/new`, `/compact`, `/agents`, or `/help`.
+
+In model search, `Ctrl+F` or `F6` toggles a favorite. `Ctrl+A` or `F5` opens provider connections.
+Recalled prompts remain editable. Prompt recall does not restore attachments.
+
+Permission requests appear above the message input:
+
+| Choice | Key | Scope |
+| --- | --- | --- |
+| Allow | `a` or `1` | Run this request once |
+| Allow for session | `s` or `2` | Allow matching requests during this session |
+| Deny | `d` or `3` | Reject this request |
+
+Arrow keys select a choice. `Enter` confirms it. Press `v` to expand the request preview.
 
 ## Configuration
 
-OwnCode looks for configuration in the following locations:
+Keep provider keys, model definitions, and Jev settings in **`~/.owncode.json`**.
+OwnCode selects the first available global file from this search order:
 
-- `$HOME/.owncode.json`
-- `$XDG_CONFIG_HOME/owncode/.owncode.json`
-- `./.owncode.json` (local directory)
+1. `$HOME/.owncode.json`
+2. `$XDG_CONFIG_HOME/owncode/.owncode.json`
+3. `$HOME/.config/owncode/.owncode.json`
 
-### Auto Compact Feature
+It then merges `.owncode.json` and `.owncode.local.json` from the working directory, in that order.
+Project values can still override global values, including models and keys.
+Remove duplicate project entries when you want the global values to apply.
+The local override file is Git-ignored. Invalid JSON stops startup.
 
-OwnCode includes an auto compact feature that automatically summarizes your conversation when it approaches the model's context window limit. When enabled (default setting), this feature:
+Model and compact settings save to the selected global file, or `~/.owncode.json` when none exists.
+Managed provider connections use `owncode/connections.json` under the operating system's user configuration directory.
+That directory can differ from `~/.config` on macOS.
 
-- Monitors token usage during your conversation
-- Automatically triggers summarization when usage reaches 95% of the model's context window
-- Creates a new session with the summary, allowing you to continue your work without losing context
-- Helps prevent "out of context" errors that can occur with long conversations
+OwnCode uses `providers`, `agents`, and `mcpServers` in JSON.
+It does not load OpenCode's npm provider plugins or directly accept their configuration schema.
 
-You can enable or disable this feature in your configuration file:
+Custom provider models use IDs such as `theykk/qwen38`.
+Define the endpoint under `providers.<name>.baseURL` and models under `providers.<name>.models`.
+Each model declares `name`, `contextWindow`, and `maxTokens`.
+The agent roles are `coder`, `task`, `summarizer`, and `title`.
 
-```json
-{
-  "autoCompact": true // default is true
-}
-```
+The [example configuration](docs/theykk.example.json) shows sampling options, image support, and interleaved reasoning.
+Restart OwnCode after manually editing configuration files.
 
-### Environment Variables
+Common provider environment variables include `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, and `GROQ_API_KEY`.
+Inherited adapters also cover Azure, Bedrock, Vertex, OpenRouter, and Copilot. Their catalogs need endpoint-specific validation.
+Use the available model list instead of assuming an older model name still works.
 
-You can configure OwnCode using environment variables:
+### Project instructions
 
-| Environment Variable       | Purpose                                                                          |
-| -------------------------- | -------------------------------------------------------------------------------- |
-| `ANTHROPIC_API_KEY`        | For Claude models                                                                |
-| `OPENAI_API_KEY`           | For OpenAI models                                                                |
-| `GEMINI_API_KEY`           | For Google Gemini models                                                         |
-| `GITHUB_TOKEN`             | For Github Copilot models (see [Using Github Copilot](#using-github-copilot))    |
-| `VERTEXAI_PROJECT`         | For Google Cloud VertexAI (Gemini)                                               |
-| `VERTEXAI_LOCATION`        | For Google Cloud VertexAI (Gemini)                                               |
-| `GROQ_API_KEY`             | For Groq models                                                                  |
-| `AWS_ACCESS_KEY_ID`        | For AWS Bedrock (Claude)                                                         |
-| `AWS_SECRET_ACCESS_KEY`    | For AWS Bedrock (Claude)                                                         |
-| `AWS_REGION`               | For AWS Bedrock (Claude)                                                         |
-| `AZURE_OPENAI_ENDPOINT`    | For Azure OpenAI models                                                          |
-| `AZURE_OPENAI_API_KEY`     | For Azure OpenAI models (optional when using Entra ID)                           |
-| `AZURE_OPENAI_API_VERSION` | For Azure OpenAI models                                                          |
-| `LOCAL_ENDPOINT`           | For self-hosted models                                                           |
-| `SHELL`                    | Default shell to use (if not specified in config)                                |
+OwnCode reads `AGENTS.md` from ancestor directories through the working directory.
+It uses `agents.md` as a fallback when the uppercase file is absent.
+More specific instructions take precedence within their directory.
 
-### Shell Configuration
+Agents receive instructions to check nested instruction files before working in those directories.
+Nested discovery is agent-driven; startup does not read every directory.
+Restart OwnCode after instruction changes to refresh an existing agent.
+Configured context files, including `OwnCode.md` and `OWNCODE.md`, remain supported.
 
-OwnCode allows you to configure the shell used by the bash tool. By default, it uses the shell specified in the `SHELL` environment variable, or falls back to `/bin/bash` if not set.
+### MCP and language servers
 
-You can override this in your configuration file:
-
-```json
-{
-  "shell": {
-    "path": "/bin/zsh",
-    "args": ["-l"]
-  }
-}
-```
-
-This is useful if you want to use a different shell than your default system shell, or if you need to pass specific arguments to the shell.
-
-### Configuration File Structure
-
-```json
-{
-  "data": {
-    "directory": ".owncode"
-  },
-  "providers": {
-    "openai": {
-      "apiKey": "your-api-key",
-      "disabled": false
-    },
-    "anthropic": {
-      "apiKey": "your-api-key",
-      "disabled": false
-    },
-    "copilot": {
-      "disabled": false
-    },
-    "groq": {
-      "apiKey": "your-api-key",
-      "disabled": false
-    },
-    "openrouter": {
-      "apiKey": "your-api-key",
-      "disabled": false
-    }
-  },
-  "agents": {
-    "coder": {
-      "model": "claude-3.7-sonnet",
-      "maxTokens": 5000
-    },
-    "task": {
-      "model": "claude-3.7-sonnet",
-      "maxTokens": 5000
-    },
-    "title": {
-      "model": "claude-3.7-sonnet",
-      "maxTokens": 80
-    }
-  },
-  "shell": {
-    "path": "/bin/bash",
-    "args": ["-l"]
-  },
-  "mcpServers": {
-    "example": {
-      "type": "stdio",
-      "command": "path/to/mcp-server",
-      "env": [],
-      "args": []
-    }
-  },
-  "lsp": {
-    "go": {
-      "disabled": false,
-      "command": "gopls"
-    }
-  },
-  "debug": false,
-  "debugLSP": false,
-  "autoCompact": true
-}
-```
-
-## Supported AI Models
-
-OwnCode supports a variety of AI models from different providers:
-
-### OpenAI
-
-- GPT-4.1 family (gpt-4.1, gpt-4.1-mini, gpt-4.1-nano)
-- GPT-4.5 Preview
-- GPT-4o family (gpt-4o, gpt-4o-mini)
-- O1 family (o1, o1-pro, o1-mini)
-- O3 family (o3, o3-mini)
-- O4 Mini
-
-### Anthropic
-
-- Claude 4 Sonnet
-- Claude 4 Opus
-- Claude 3.5 Sonnet
-- Claude 3.5 Haiku
-- Claude 3.7 Sonnet
-- Claude 3 Haiku
-- Claude 3 Opus
-
-### GitHub Copilot
-
-- GPT-3.5 Turbo
-- GPT-4
-- GPT-4o
-- GPT-4o Mini
-- GPT-4.1
-- Claude 3.5 Sonnet
-- Claude 3.7 Sonnet
-- Claude 3.7 Sonnet Thinking
-- Claude Sonnet 4
-- O1
-- O3 Mini
-- O4 Mini
-- Gemini 2.0 Flash
-- Gemini 2.5 Pro
-
-### Google
-
-- Gemini 2.5
-- Gemini 2.5 Flash
-- Gemini 2.0 Flash
-- Gemini 2.0 Flash Lite
-
-### AWS Bedrock
-
-- Claude 3.7 Sonnet
-
-### Groq
-
-- Llama 4 Maverick (17b-128e-instruct)
-- Llama 4 Scout (17b-16e-instruct)
-- QWEN QWQ-32b
-- Deepseek R1 distill Llama 70b
-- Llama 3.3 70b Versatile
-
-### Azure OpenAI
-
-- GPT-4.1 family (gpt-4.1, gpt-4.1-mini, gpt-4.1-nano)
-- GPT-4.5 Preview
-- GPT-4o family (gpt-4o, gpt-4o-mini)
-- O1 family (o1, o1-mini)
-- O3 family (o3, o3-mini)
-- O4 Mini
-
-### Google Cloud VertexAI
-
-- Gemini 2.5
-- Gemini 2.5 Flash
-
-## Usage
-
-```bash
-# Start OwnCode
-owncode
-
-# Start with debug logging
-owncode -d
-
-# Start with a specific working directory
-owncode -c /path/to/project
-```
-
-## Non-interactive Prompt Mode
-
-You can run OwnCode in non-interactive mode by passing a prompt directly as a command-line argument. This is useful for scripting, automation, or when you want a quick answer without launching the full TUI.
-
-```bash
-# Run a single prompt and print the AI's response to the terminal
-owncode -p "Explain the use of context in Go"
-
-# Get response in JSON format
-owncode -p "Explain the use of context in Go" -f json
-
-# Run without showing the spinner (useful for scripts)
-owncode -p "Explain the use of context in Go" -q
-```
-
-In this mode, OwnCode will process your prompt, print the result to standard output, and then exit. All permissions are auto-approved for the session.
-
-By default, a spinner animation is displayed while the model is processing your query. You can disable this spinner with the `-q` or `--quiet` flag, which is particularly useful when running OwnCode from scripts or automated workflows.
-
-### Output Formats
-
-OwnCode supports the following output formats in non-interactive mode:
-
-| Format | Description                     |
-| ------ | ------------------------------- |
-| `text` | Plain text output (default)     |
-| `json` | Output wrapped in a JSON object |
-
-The output format is implemented as a strongly-typed `OutputFormat` in the codebase, ensuring type safety and validation when processing outputs.
-
-## Command-line Flags
-
-| Flag              | Short | Description                                         |
-| ----------------- | ----- | --------------------------------------------------- |
-| `--help`          | `-h`  | Display help information                            |
-| `--debug`         | `-d`  | Enable debug mode                                   |
-| `--cwd`           | `-c`  | Set current working directory                       |
-| `--prompt`        | `-p`  | Run a single prompt in non-interactive mode         |
-| `--output-format` | `-f`  | Output format for non-interactive mode (text, json) |
-| `--quiet`         | `-q`  | Hide spinner in non-interactive mode                |
-
-## Keyboard Shortcuts
-
-### Global Shortcuts
-
-| Shortcut | Action                                                  |
-| -------- | ------------------------------------------------------- |
-| `Ctrl+C` | Quit application                                        |
-| `Ctrl+?` | Toggle help dialog                                      |
-| `?`      | Toggle help dialog (when not in editing mode)           |
-| `Ctrl+L` | View logs                                               |
-| `Ctrl+A` | Switch session                                          |
-| `Ctrl+K` | Command dialog                                          |
-| `Ctrl+O` | Toggle model selection dialog                           |
-| `Esc`    | Close current overlay/dialog or return to previous mode |
-
-### Chat Page Shortcuts
-
-| Shortcut | Action                                  |
-| -------- | --------------------------------------- |
-| `Ctrl+N` | Create new session                      |
-| `Ctrl+X` | Cancel current operation/generation     |
-| `i`      | Focus editor (when not in writing mode) |
-| `Esc`    | Exit writing mode and focus messages    |
-
-### Editor Shortcuts
-
-| Shortcut            | Action                                    |
-| ------------------- | ----------------------------------------- |
-| `Ctrl+S`            | Send message (when editor is focused)     |
-| `Enter` or `Ctrl+S` | Send message (when editor is not focused) |
-| `Ctrl+E`            | Open external editor                      |
-| `Esc`               | Blur editor and focus messages            |
-
-### Session Dialog Shortcuts
-
-| Shortcut   | Action           |
-| ---------- | ---------------- |
-| `↑` or `k` | Previous session |
-| `↓` or `j` | Next session     |
-| `Enter`    | Select session   |
-| `Esc`      | Close dialog     |
-
-### Model Dialog Shortcuts
-
-| Shortcut   | Action            |
-| ---------- | ----------------- |
-| `↑` or `k` | Move up           |
-| `↓` or `j` | Move down         |
-| `←` or `h` | Previous provider |
-| `→` or `l` | Next provider     |
-| `Esc`      | Close dialog      |
-
-### Permission Dialog Shortcuts
-
-| Shortcut                | Action                       |
-| ----------------------- | ---------------------------- |
-| `←` or `left`           | Switch options left          |
-| `→` or `right` or `tab` | Switch options right         |
-| `Enter` or `space`      | Confirm selection            |
-| `a`                     | Allow permission             |
-| `A`                     | Allow permission for session |
-| `d`                     | Deny permission              |
-
-### Logs Page Shortcuts
-
-| Shortcut           | Action              |
-| ------------------ | ------------------- |
-| `Backspace` or `q` | Return to chat page |
-
-## AI Assistant Tools
-
-OwnCode's AI assistant has access to various tools to help with coding tasks:
-
-### File and Code Tools
-
-| Tool          | Description                 | Parameters                                                                               |
-| ------------- | --------------------------- | ---------------------------------------------------------------------------------------- |
-| `glob`        | Find files by pattern       | `pattern` (required), `path` (optional)                                                  |
-| `grep`        | Search file contents        | `pattern` (required), `path` (optional), `include` (optional), `literal_text` (optional) |
-| `ls`          | List directory contents     | `path` (optional), `ignore` (optional array of patterns)                                 |
-| `view`        | View file contents          | `file_path` (required), `offset` (optional), `limit` (optional)                          |
-| `write`       | Write to files              | `file_path` (required), `content` (required)                                             |
-| `edit`        | Edit files                  | Various parameters for file editing                                                      |
-| `patch`       | Apply patches to files      | `file_path` (required), `diff` (required)                                                |
-| `diagnostics` | Get diagnostics information | `file_path` (optional)                                                                   |
-
-### Other Tools
-
-| Tool          | Description                            | Parameters                                                                                |
-| ------------- | -------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `bash`        | Execute shell commands                 | `command` (required), `timeout` (optional)                                                |
-| `fetch`       | Fetch data from URLs                   | `url` (required), `format` (required), `timeout` (optional)                               |
-| `sourcegraph` | Search code across public repositories | `query` (required), `count` (optional), `context_window` (optional), `timeout` (optional) |
-| `agent`       | Run sub-tasks with the AI agent        | `prompt` (required)                                                                       |
-
-## Architecture
-
-OwnCode is built with a modular architecture:
-
-- **cmd**: Command-line interface using Cobra
-- **internal/app**: Core application services
-- **internal/config**: Configuration management
-- **internal/db**: Database operations and migrations
-- **internal/llm**: LLM providers and tools integration
-- **internal/tui**: Terminal UI components and layouts
-- **internal/logging**: Logging infrastructure
-- **internal/message**: Message handling
-- **internal/session**: Session management
-- **internal/lsp**: Language Server Protocol integration
-
-## Custom Commands
-
-OwnCode supports custom commands that can be created by users to quickly send predefined prompts to the AI assistant.
-
-### Creating Custom Commands
-
-Custom commands are predefined prompts stored as Markdown files in one of three locations:
-
-1. **User Commands** (prefixed with `user:`):
-
-   ```
-   $XDG_CONFIG_HOME/owncode/commands/
-   ```
-
-   (typically `~/.config/owncode/commands/` on Linux/macOS)
-
-   or
-
-   ```
-   $HOME/.owncode/commands/
-   ```
-
-2. **Project Commands** (prefixed with `project:`):
-
-   ```
-   <PROJECT DIR>/.owncode/commands/
-   ```
-
-Each `.md` file in these directories becomes a custom command. The file name (without extension) becomes the command ID.
-
-For example, creating a file at `~/.config/owncode/commands/prime-context.md` with content:
-
-```markdown
-RUN git ls-files
-READ README.md
-```
-
-This creates a command called `user:prime-context`.
-
-### Command Arguments
-
-OwnCode supports named arguments in custom commands using placeholders in the format `$NAME` (where NAME consists of uppercase letters, numbers, and underscores, and must start with a letter).
-
-For example:
-
-```markdown
-# Fetch Context for Issue $ISSUE_NUMBER
-
-RUN gh issue view $ISSUE_NUMBER --json title,body,comments
-RUN git grep --author="$AUTHOR_NAME" -n .
-RUN grep -R "$SEARCH_PATTERN" $DIRECTORY
-```
-
-When you run a command with arguments, OwnCode will prompt you to enter values for each unique placeholder. Named arguments provide several benefits:
-
-- Clear identification of what each argument represents
-- Ability to use the same argument multiple times
-- Better organization for commands with multiple inputs
-
-### Organizing Commands
-
-You can organize commands in subdirectories:
-
-```
-~/.config/owncode/commands/git/commit.md
-```
-
-This creates a command with ID `user:git:commit`.
-
-### Using Custom Commands
-
-1. Press `Ctrl+K` to open the command dialog
-2. Select your custom command (prefixed with either `user:` or `project:`)
-3. Press Enter to execute the command
-
-The content of the command file will be sent as a message to the AI assistant.
-
-### Built-in Commands
-
-OwnCode includes several built-in commands:
-
-| Command            | Description                                                                                         |
-| ------------------ | --------------------------------------------------------------------------------------------------- |
-| Initialize Project | Creates or updates the OwnCode.md memory file with project-specific information                    |
-| Compact Session    | Manually triggers the summarization of the current session, creating a new session with the summary |
-
-## MCP (Model Context Protocol)
-
-OwnCode implements the Model Context Protocol (MCP) to extend its capabilities through external tools. MCP provides a standardized way for the AI assistant to interact with external services and tools.
-
-### MCP Features
-
-- **External Tool Integration**: Connect to external tools and services via a standardized protocol
-- **Tool Discovery**: Automatically discover available tools from MCP servers
-- **Multiple Connection Types**:
-  - **Stdio**: Communicate with tools via standard input/output
-  - **SSE**: Communicate with tools via Server-Sent Events
-- **Security**: Permission system for controlling access to MCP tools
-
-### Configuring MCP Servers
-
-MCP servers are defined in the configuration file under the `mcpServers` section:
+Add external tools and diagnostics through configuration:
 
 ```json
 {
   "mcpServers": {
     "example": {
       "type": "stdio",
-      "command": "path/to/mcp-server",
-      "env": [],
+      "command": "/absolute/path/to/mcp-server",
       "args": []
-    },
-    "web-example": {
-      "type": "sse",
-      "url": "https://example.com/mcp",
-      "headers": {
-        "Authorization": "Bearer token"
-      }
     }
-  }
-}
-```
-
-### MCP Tool Usage
-
-Once configured, MCP tools are automatically available to the AI assistant alongside built-in tools. They follow the same permission model as other tools, requiring user approval before execution.
-
-## LSP (Language Server Protocol)
-
-OwnCode integrates with Language Server Protocol to provide code intelligence features across multiple programming languages.
-
-### LSP Features
-
-- **Multi-language Support**: Connect to language servers for different programming languages
-- **Diagnostics**: Receive error checking and linting information
-- **File Watching**: Automatically notify language servers of file changes
-
-### Configuring LSP
-
-Language servers are configured in the configuration file under the `lsp` section:
-
-```json
-{
+  },
   "lsp": {
     "go": {
-      "disabled": false,
-      "command": "gopls"
-    },
-    "typescript": {
-      "disabled": false,
-      "command": "typescript-language-server",
-      "args": ["--stdio"]
+      "command": "gopls",
+      "disabled": false
     }
   }
 }
 ```
 
-### LSP Integration with AI
+Install each server separately. MCP also supports SSE connections with `url` and optional `headers`.
+The agent receives LSP diagnostics. General LSP navigation and rename tools are not exposed yet.
 
-The AI assistant can access LSP features through the `diagnostics` tool, allowing it to:
+### Custom commands
 
-- Check for errors in your code
-- Suggest fixes based on diagnostics
+Store reusable prompts as Markdown files in these directories:
 
-While the LSP client implementation supports the full LSP protocol (including completions, hover, definition, etc.), currently only diagnostics are exposed to the AI assistant.
+- `~/.config/owncode/commands/`, or the equivalent under `$XDG_CONFIG_HOME`
+- `~/.owncode/commands/`
+- `<data.directory>/commands/`, which defaults to `<project>/.owncode/commands/`
 
-## Using Github Copilot
+Commands appear in the palette with `user:` or `project:` prefixes.
+Subdirectories become name segments. For example, `git/review.md` becomes `user:git:review`.
+Use `$NAME` placeholders for named arguments; OwnCode asks for their values before sending the prompt.
+These files are prompt templates, not executable plugins or discovered skills.
 
-_Copilot support is currently experimental._
+### Local data
 
-### Requirements
-- [Copilot chat in the IDE](https://github.com/settings/copilot) enabled in GitHub settings
-- One of:
-  - VSCode Github Copilot chat extension
-  - Github `gh` CLI
-  - Neovim Github Copilot plugin (`copilot.vim` or `copilot.lua`)
-  - Github token with copilot permissions
+By default, `.owncode/` contains session data and `owncode.db`.
+Context archives also use the configured data directory.
+OwnCode does not automatically import OpenCode settings or sessions.
 
-If using one of the above plugins or cli tools, make sure you use the authenticate
-the tool with your github account. This should create a github token at one of the following locations:
-- ~/.config/github-copilot/[hosts,apps].json
-- $XDG_CONFIG_HOME/github-copilot/[hosts,apps].json
+## Context compaction
 
-If using an explicit github token, you may either set the $GITHUB_TOKEN environment variable or add it to the .owncode.json config file at `providers.copilot.apiKey`.
+Choose **Settings → Context → Method**, then run **`/compact`**.
+The command uses your saved method without opening another selector.
 
-## Using a self-hosted model provider
+| Method | Behavior | Requirement |
+| --- | --- | --- |
+| `summary` | Summarize the active conversation for continued work | Configured summarizer model |
+| `shake` | Archive attachments and eligible older, large tool results | Local archive storage |
+| `snapcompact` | Render older text as image pages and keep recent messages | Model with image support; experimental |
+| `jev` | Score eligible tool text and shorten selected results through Compact Engine | Separate Jev API key |
+| `native` | Use the provider's native compaction path | Explicit support from the provider and endpoint |
 
-OwnCode can also load and use models from a self-hosted (OpenAI-like) provider.
-This is useful for developers who want to experiment with custom models.
+Summary is the default method. Summary modes are `balanced`, `brief`, and `handoff`.
+You can also set a focus, such as test failures or unfinished changes.
+Automatic compaction defaults to enabled at 95% context usage. Settings offers 70%, 80%, 90%, and 95% triggers.
+Compaction updates the active context in the existing session; the original transcript remains stored.
 
-### Configuring a self-hosted provider
+### Jev setup
 
-You can use a self-hosted model by setting the `LOCAL_ENDPOINT` environment variable.
-This will cause OwnCode to load and use the models from the specified endpoint.
-
-```bash
-LOCAL_ENDPOINT=http://localhost:1235/v1
-```
-
-### Configuring a self-hosted model
-
-You can also configure a self-hosted model in the configuration file under the `agents` section:
+Merge this object into your global configuration:
 
 ```json
 {
-  "agents": {
-    "coder": {
-      "model": "local.granite-3.3-2b-instruct@q8_0",
-      "reasoningEffort": "high"
+  "compaction": {
+    "method": "jev",
+    "jev": {
+      "apiKey": "YOUR_JEV_API_KEY"
     }
   }
 }
 ```
+
+OwnCode integrates [Compact Engine](https://github.com/muratmirgun/compact-engine) through its Go library, currently pinned to `v0.2.0`.
+Jev evaluates whether eligible tool results need full retention.
+OwnCode preserves attachments and other protected content; you do not need to run Shake first.
+It does not summarize ordinary chat prose in place of tool results.
+Eligible context goes to the Jev scoring service when you use this method.
+
+If the engine reports `budget_unmet`, OwnCode retains the original active history.
+A requested reduction is not guaranteed when protected content or scoring prevents it.
+Use summary compaction when you need a different reduction strategy.
+
+An OpenAI-compatible chat endpoint does not automatically support native compaction.
+Its Responses support must match the native adapter. Enabling a config flag cannot add missing endpoint support.
+Snapcompact can reject mixed history or a conversion that would increase estimated context size.
+TPS values are estimates, not an independent provider benchmark.
+
+## Skills and installation
+
+OwnCode follows Crush's catalog-first pattern: metadata enters the tool description; full instructions load when selected.
+The implementation is independent. It does not execute scripts while loading or installing a skill.
+
+Discovery uses this precedence:
+
+1. `<project>/.owncode/skills/<name>/SKILL.md`
+2. `<project>/.agents/skills/<name>/SKILL.md`
+3. `$XDG_CONFIG_HOME/owncode/skills/<name>/SKILL.md`, or `~/.config/owncode/skills/<name>/SKILL.md`
+4. `~/.agents/skills/<name>/SKILL.md`
+
+A minimal skill:
+
+```markdown
+---
+name: review-go
+description: Review Go changes for errors and missing checks.
+---
+Read the changed functions. Report concrete failures with file paths and evidence.
+```
+
+The name must match its directory. Names use lowercase letters, numbers, and single hyphens, up to 64 characters.
+Optional frontmatter fields include `license`, `user-invocable: false`, and `disable-model-invocation: true`.
+The first copy wins. The detail view lists shadowed paths. A disabled override does not reveal a lower-priority copy.
+
+Enter `/skills` to manage skills:
+
+| Control | Action |
+| --- | --- |
+| `Tab` | Switch between Installed and Discover |
+| `Enter` | Inspect a skill or search the catalog |
+| `F2` / `F3` | Prepare a project / user installation |
+| `Ctrl+E` | Enable or disable the selected skill |
+| `Ctrl+U` | Prepare an update |
+| `Ctrl+B` | Preview the previous installed revision |
+| `Ctrl+D` | Confirm removal of an unchanged managed skill |
+| `Ctrl+A` | Prepare the selected catalog result for project installation |
+| `Ctrl+R` | Refresh installed entries |
+
+Sources accept `owner/repo#path/to/skill`, an HTTPS Git URL, or a local directory.
+OwnCode resolves a commit, stages files, and shows the source, revision, files, and instructions before installation.
+An update checks the current content hash and retains one rollback revision.
+Local edits block updates and removal. Installation does not run repository scripts or Git hooks.
+
+Start a message with `$review-go` to select a skill. Suggestions appear after `$`.
+`Enter` completes the skill name; it does not send the message.
+You can also inspect a skill and press `a` to insert its instructions into the draft.
+The agent can use the `skill` tool to load instructions and confined supporting files.
+Loaded instructions carry their source path, content hash, and installed revision in the transcript.
+
+Limits: 500 discovered skills, 256 KiB per text file, and 128 files / 4 MiB per installation.
+Escaping paths and installation symlinks are rejected. Existing tool permissions still apply.
+Shared-directory symlinks must stay inside their discovery root.
+
+Discover uses the documented skills.sh API. Set `OWNCODE_SKILLS_TOKEN` to a valid catalog API token if you have one.
+This requires the API's supported authentication, not a model API key.
+Search metadata stays cached in memory for fifteen minutes. Failed refreshes clearly mark cached results.
+OwnCode does not scrape the site or deploy a catalog service. Authenticated catalog access has not been live-verified.
+Git installation remains available when search fails.
+
+## Agent profiles and worker follow-ups
+
+Enter `/profiles`, or use **Settings → Model → Agent profile**.
+Press **Tab** in the message field to switch between Build and read-only Plan.
+From a custom profile, Tab selects Plan. Your draft stays intact.
+Tab still completes command suggestions. Switching requires idle agents.
+Build permits the standard coding tools. Plan restricts the actual tool list to read-only tools.
+An unknown configured profile falls back to a restricted planning policy.
+
+Define custom profiles in the global configuration:
+
+```json
+{
+  "activeProfile": "review",
+  "profiles": {
+    "review": {
+      "description": "Read-only review",
+      "readOnly": true,
+      "prompt": "Review changes. Report concrete defects with evidence.",
+      "tools": ["glob", "grep", "ls", "view", "lsp", "diagnostics", "skill", "ask"]
+    }
+  }
+}
+```
+
+A profile can also set `model` to a registered model ID and set `reasoning`.
+Those values override the coding role while the profile is active. Other model roles retain their configuration.
+Omit `tools` to use the profile's default policy. An empty list exposes no tools.
+Profiles change only while the agent is idle.
+
+The `agent` tool returns a `worker_id`. A later call with `worker_id` and `prompt` resumes that child's saved history.
+Only workers from the same parent session can resume. Active workers reject duplicate runs.
+
+In `/agents`, press `f` to write a follow-up:
+
+- An active worker receives the text after its current turn finishes.
+- An idle worker prepares a resume request in the main draft. Press `Enter` there to send it.
+- `c` cancels the selected worker. The queue accepts up to eight follow-ups.
+
+Worker cancellation still follows the parent request. Follow-ups do not add write tools to a worker.
+The `ask` tool presents inline options with a free-text reply. Dismissing a question grants no permission.
+
+## Undo and redo
+
+Enter `/undo` to inspect the last turn checkpoint. Enter `/redo` to inspect the next undone turn.
+Review the diff before pressing `Enter`. `Esc` leaves the files and conversation intact.
+
+A checkpoint includes conversation visibility, context counters, and regular files visible to Git.
+OwnCode checks affected files before restoration. Later edits or conversation changes block the operation.
+Unrelated paths remain intact. Billed cost remains intact too.
+
+Recovery requires a Git working tree. It excludes ignored files, symlinks, submodules, OwnCode state files, and external effects.
+Changes from other processes during the turn can enter the checkpoint; inspect the preview before restoring.
+A new turn invalidates redo history. Old sessions do not gain checkpoints retroactively.
+
+Limits: ten retained turns per session, 20,000 files, 8 MiB per file, and 32 MiB per capture.
+Large captures fail without blocking the coding turn. The log explains unavailable checkpoints.
+Completed checkpoints store changed files only. Large diffs show a notice instead of rendering an unlimited preview.
+An interrupted restore blocks further restoration until the files receive manual inspection.
+
+## Code intelligence and extensions
+
+The read-only `lsp` tool supports `definition`, `references`, `document_symbols`, and `workspace_symbols`.
+Choose a server when several are ready. Input line and character values start at one; characters use UTF-16 units.
+Results retain standard LSP positions, which start at zero. Calls have a fifteen-second timeout.
+A live `gopls` definition request is covered by an opt-in integration check:
+
+```bash
+OWNCODE_TEST_LSP="$(command -v gopls)" go test ./internal/llm/tools -run TestLSPGoplsIntegration -v
+```
+Rename and code actions are not exposed through this tool.
+
+Optional process hooks use a versioned JSON protocol. Configure them in the **global** config only:
+
+```json
+{
+  "extensions": {
+    "local-notice": {
+      "enabled": true,
+      "command": ["/absolute/path/to/owncode-hook"]
+    }
+  }
+}
+```
+
+Enable only trusted executables. Hooks run as your OS user; this is not a sandbox.
+OwnCode ignores project-level hook definitions. Each process receives one JSON object through stdin:
+
+```json
+{"version":1,"type":"turn.complete","session_id":"example","model":"example/model","outcome":"completed"}
+```
+
+Return one JSON object through stdout:
+
+```json
+{"version":1,"notice":"Local task finished"}
+```
+
+The protocol includes no prompts, responses, file contents, or model credentials.
+It permits a log notice, not tool execution requests or context changes.
+At most four enabled hooks run within a shared two-second budget after a primary turn.
+Output is limited to 8 KiB; notices are limited to 512 bytes. Hooks receive a minimal environment.
+Canceled turns skip hooks. Hook failures appear in logs and do not discard the model response.
+
+## Scripting
+
+```bash
+owncode -p "Explain this repository"
+owncode -p "List the main packages" -f json
+owncode -p "Explain this function" -q
+```
+
+**Non-interactive mode automatically approves tool permissions for its session.**
+Use it only with prompts and projects where that behavior is appropriate.
+`-f` selects text or JSON output. `-q` hides the spinner. `-d` enables debug logging.
+The `-s` session flag cannot combine with `-p`.
 
 ## Development
 
-### Prerequisites
-
-- Go 1.27.1 or higher
-
-### Building from Source
-
 ```bash
-# Clone the repository
-git clone https://github.com/muratmirgun/owncode.git
-cd owncode
-
-# Build
-go build -o owncode
-
-# Run
-./owncode
+go build -o bin/owncode .
+go test ./...
+go vet ./...
+go test -race ./internal/skills ./internal/recovery ./internal/question ./internal/extension ./internal/llm/agent ./internal/llm/tools ./internal/tui/...
 ```
 
-## Acknowledgments
+Use the stream/scroll fixture to compare terminal performance:
 
-The original OpenCode project acknowledges the contributions and support from these key individuals:
+```bash
+go test ./internal/tui/components/chat -run '^$' -bench 'Benchmark(ConversationScroll|WorkerStreamScrollInput|ChildThinkingFrame)$' -benchmem
+```
 
-- [@isaacphi](https://github.com/isaacphi) - For the [mcp-language-server](https://github.com/isaacphi/mcp-language-server) project which provided the foundation for our LSP client implementation
-- [@adamdottv](https://github.com/adamdottv) - For the design direction and UI/UX architecture
+This measures local event handling and rendering. It does not measure provider latency or terminal transport.
 
-Special thanks to the broader open source community whose tools and libraries have made this project possible.
+| Directory | Responsibility |
+| --- | --- |
+| `cmd/` | CLI, startup, and exit summary |
+| `internal/tui/` | Chat, dialogs, input, and rendering |
+| `internal/llm/` | Providers, agent execution, tools, and compaction |
+| `internal/config/` | Settings and model registration |
+| `internal/auth/` | Managed provider credentials |
+| `internal/session/`, `internal/message/`, `internal/db/` | Saved conversations and storage |
+| `internal/lsp/` | Language server integration |
+| `internal/skills/` | Discovery, loading, Git installation, and catalog adapter |
+| `internal/recovery/` | Turn checkpoints and restoration |
+| `internal/question/`, `internal/extension/` | User questions and metadata hooks |
 
-## License
+The [first-run report](docs/first-run.md) records the initial fork state, not the current feature set.
+The [roadmap](docs/roadmap.md) records the implementation scope, reference sources, and remaining work.
 
-OwnCode is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+## Contributing and license
 
-## Contributing
+Keep changes focused. Add relevant checks and describe the behavior you verified.
+For interface changes, include the terminal size and a screenshot when possible.
 
-Contributions are welcome! Here's how you can contribute:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-Please make sure to update tests as appropriate and follow the existing code style.
-
-The model picker (`ctrl+o` or `/models`) searches all configured providers.
-Use the arrow keys to select a model, then press Enter. Press `ctrl+f` to toggle
-favorites or `ctrl+a` to connect a provider. Favorites and recent selections
-persist in `owncode/model-preferences.json` under your user configuration directory.
-
-Function keys also work without Control: `F2` opens models, `F3` opens sessions,
-and `F4` cycles reasoning. In the model picker, `F5` connects a provider and
-`F6` toggles a favorite. On Mac keyboards that use media keys, hold `Fn` with
-the function key. `/models` and `/sessions` remain available as typed commands.
-
-Use `↑` at the first input line to recall sent messages in the current session.
-Use `↓` at the last input line to move forward and restore your unsent draft.
-Recalled messages remain editable; Enter sends them. Attachments are not recalled.
+OwnCode uses the [MIT License](LICENSE).
+Thanks to the original OpenCode contributors and the Charm community for the foundation.
+The original project also credits [isaacphi](https://github.com/isaacphi/mcp-language-server) for LSP work and [adamdottv](https://github.com/adamdottv) for interface direction.

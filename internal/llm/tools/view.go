@@ -22,7 +22,7 @@ type ViewParams struct {
 }
 
 type viewTool struct {
-	lspClients map[string]*lsp.Client
+	lspClients *lsp.Registry
 }
 
 type ViewResponseMetadata struct {
@@ -67,7 +67,7 @@ TIPS:
 - When viewing large files, use the offset parameter to read specific sections`
 )
 
-func NewViewTool(lspClients map[string]*lsp.Client) BaseTool {
+func NewViewTool(lspClients *lsp.Registry) BaseTool {
 	return &viewTool{
 		lspClients,
 	}
@@ -174,7 +174,7 @@ func (v *viewTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error)
 		return ToolResponse{}, fmt.Errorf("error reading file: %w", err)
 	}
 
-	notifyLspOpenFile(ctx, filePath, v.lspClients)
+	notifyLspOpenFile(ctx, filePath, v.lspClients.Snapshot())
 	output := "<file>\n"
 	// Format the output with line numbers
 	output += addLineNumbers(content, params.Offset+1)
@@ -185,7 +185,7 @@ func (v *viewTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error)
 			params.Offset+len(strings.Split(content, "\n")))
 	}
 	output += "\n</file>\n"
-	output += getDiagnostics(filePath, v.lspClients)
+	output += getDiagnostics(filePath, v.lspClients.Snapshot())
 	recordFileRead(filePath)
 	return WithResponseMetadata(
 		NewTextResponse(output),

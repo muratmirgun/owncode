@@ -77,3 +77,24 @@ func TestGrowingEditorRevealsPastedLines(t *testing.T) {
 	require.Equal(t, 1, editor.textarea.Line())
 	require.Equal(t, len("second line"), editor.textarea.LineInfo().ColumnOffset)
 }
+
+func TestTabRequestsProfileSwitchAndPreservesDraft(t *testing.T) {
+	editor := &editorCmp{textarea: textarea.New(), attachments: []message.Attachment{{FileName: "draft.txt"}}}
+	editor.textarea.Focus()
+	editor.textarea.SetValue("keep this draft")
+	_, cmd := editor.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	require.NotNil(t, cmd)
+	require.IsType(t, ToggleProfileMsg{}, cmd())
+	require.Equal(t, "keep this draft", editor.textarea.Value())
+	require.Len(t, editor.attachments, 1)
+}
+
+func TestTabCompletesCommandBeforeProfileSwitch(t *testing.T) {
+	editor := &editorCmp{textarea: textarea.New()}
+	editor.textarea.Focus()
+	editor.textarea.SetValue("/profil")
+	_, cmd := editor.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	require.Equal(t, "/profiles", editor.textarea.Value())
+	require.NotNil(t, cmd)
+	require.NotEqual(t, ToggleProfileMsg{}, cmd())
+}

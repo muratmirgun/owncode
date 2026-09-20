@@ -15,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
 	"github.com/muratmirgun/owncode/internal/app"
 	"github.com/muratmirgun/owncode/internal/llm/agent"
 	"github.com/muratmirgun/owncode/internal/logging"
@@ -28,6 +29,9 @@ import (
 	"github.com/muratmirgun/owncode/internal/tui/util"
 )
 
+// ToggleProfileMsg requests a switch between Build and Plan.
+type ToggleProfileMsg struct{}
+
 type editorCmp struct {
 	history           []sentDraft
 	historyOffset     int
@@ -40,6 +44,7 @@ type editorCmp struct {
 	textarea          textarea.Model
 	attachments       []message.Attachment
 	deleteMode        bool
+	skillCommands     []slashCommand
 	slashIndex        int
 	slashDismissed    bool
 	throughput        map[string]*throughputStats
@@ -133,7 +138,7 @@ func (m *editorCmp) openEditor() tea.Cmd {
 }
 
 func (m *editorCmp) Init() tea.Cmd {
-	return textarea.Blink
+	return tea.Batch(textarea.Blink, m.loadSkillNames())
 }
 
 func (m *editorCmp) send() tea.Cmd {
@@ -162,9 +167,22 @@ func (m *editorCmp) send() tea.Cmd {
 	)
 }
 
+// InsertTextMsg appends reviewed content without submitting the draft.
+type InsertTextMsg string
+
 func (m *editorCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
+	case skillNamesMsg:
+		if msg.owner == m {
+			m.skillCommands = msg.commands
+		}
+		return m, m.slashSuggestions()
+	case dialog.SkillsChangedMsg:
+		return m, m.loadSkillNames()
+	case InsertTextMsg:
+		m.textarea.SetValue(m.textarea.Value() + string(msg))
+		return m, nil
 	case HomeEditorMsg:
 		m.home = bool(msg)
 		return m, nil
@@ -242,6 +260,9 @@ func (m *editorCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		if handled, cmd := m.handleSlash(msg); handled {
 			return m, cmd
+		}
+		if msg.String() == "tab" && m.textarea.Focused() && !m.deleteMode {
+			return m, util.CmdHandler(ToggleProfileMsg{})
 		}
 		if !m.deleteMode && m.recallMessage(msg) {
 			return m, m.slashSuggestions()

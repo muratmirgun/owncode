@@ -6,8 +6,8 @@ WHERE id = ? LIMIT 1;
 -- name: ListMessagesBySession :many
 SELECT *
 FROM messages
-WHERE session_id = ?
-ORDER BY created_at ASC;
+WHERE session_id = ? AND NOT EXISTS (SELECT 1 FROM hidden_messages h WHERE h.message_id = messages.id)
+ORDER BY created_at ASC, rowid ASC;
 
 -- name: CreateMessage :one
 INSERT INTO messages (

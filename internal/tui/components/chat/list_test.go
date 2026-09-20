@@ -1,16 +1,19 @@
 package chat
 
 import (
+	"strings"
+	"testing"
+
+	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/stretchr/testify/require"
+
 	"github.com/muratmirgun/owncode/internal/app"
 	"github.com/muratmirgun/owncode/internal/llm/agent"
 	"github.com/muratmirgun/owncode/internal/message"
 	"github.com/muratmirgun/owncode/internal/pubsub"
 	"github.com/muratmirgun/owncode/internal/session"
-	"github.com/stretchr/testify/require"
-	"strings"
-	"testing"
 )
 
 func scrollFixture() *messagesCmp {
@@ -102,5 +105,46 @@ func BenchmarkChildThinkingFrame(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		m.Update(pubsub.Event[message.Message]{Type: pubsub.UpdatedEvent, Payload: msg})
 		m.Update(conversationFrameMsg{owner: m})
+	}
+}
+
+// This fixture interleaves three worker streams with scrolling and composer input.
+func TestInputAfterWorkerScrollBurst(t *testing.T) {
+	m := scrollFixture()
+	m.session.ParentSessionID = "parent"
+	m.app.CoderAgent = workingAgent{}
+	editor := &editorCmp{textarea: textarea.New()}
+	editor.textarea.Focus()
+	for i := range 200 {
+		for _, id := range []string{"s", "other-a", "other-b"} {
+			m.Update(pubsub.Event[message.Message]{Type: pubsub.UpdatedEvent, Payload: message.Message{ID: "stream-" + id, SessionID: id, Role: message.Assistant, Parts: []message.ContentPart{message.TextContent{Text: strings.Repeat("stream ", i%20+1)}}}})
+		}
+		m.Update(tea.MouseWheelMsg{X: 5, Y: 3, Button: tea.MouseWheelUp})
+		m.Update(conversationFrameMsg{owner: m})
+	}
+	editor.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	require.Equal(t, "x", editor.textarea.Value())
+}
+func BenchmarkWorkerStreamScrollInput(b *testing.B) {
+	m := scrollFixture()
+	m.session.ParentSessionID = "parent"
+	m.app.CoderAgent = workingAgent{}
+	editor := &editorCmp{textarea: textarea.New()}
+	editor.textarea.Focus()
+	text := strings.Repeat("A bounded **worker update** with source references.\n", 100)
+	b.ResetTimer()
+	for i := range b.N {
+		for _, id := range []string{"s", "other-a", "other-b"} {
+			m.Update(pubsub.Event[message.Message]{Type: pubsub.UpdatedEvent, Payload: message.Message{ID: "stream-" + id, SessionID: id, Role: message.Assistant, Parts: []message.ContentPart{message.TextContent{Text: text}}}})
+		}
+		m.Update(conversationFrameMsg{owner: m})
+		button := tea.MouseWheelUp
+		if i%2 == 0 {
+			button = tea.MouseWheelDown
+		}
+		m.Update(tea.MouseWheelMsg{X: 5, Y: 3, Button: button})
+		_ = m.View()
+		editor.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+		editor.textarea.Reset()
 	}
 }

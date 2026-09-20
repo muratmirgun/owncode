@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 
+	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/history"
 	"github.com/muratmirgun/owncode/internal/llm/tools"
 	"github.com/muratmirgun/owncode/internal/lsp"
@@ -16,18 +17,20 @@ func CoderAgentTools(
 	sessions session.Service,
 	messages message.Service,
 	history history.Service,
-	lspClients map[string]*lsp.Client,
+	lspClients *lsp.Registry,
+	extra ...tools.BaseTool,
 ) []tools.BaseTool {
 	ctx := context.Background()
-	otherTools := GetMcpTools(ctx, permissions)
-	if len(lspClients) > 0 {
-		otherTools = append(otherTools, tools.NewDiagnosticsTool(lspClients))
+	otherTools := append(GetMcpTools(ctx, permissions), extra...)
+	if lspClients != nil {
+		otherTools = append(otherTools, tools.NewDiagnosticsTool(lspClients), tools.NewLSPTool(lspClients))
 	}
 	return append(
 		[]tools.BaseTool{
 			tools.NewBashTool(permissions),
 			tools.NewEditTool(lspClients, permissions, history),
 			tools.NewFetchTool(permissions),
+			tools.NewSkillTool(config.WorkingDirectory()),
 			tools.NewGlobTool(),
 			tools.NewGrepTool(),
 			tools.NewLsTool(),
@@ -40,8 +43,10 @@ func CoderAgentTools(
 	)
 }
 
-func TaskAgentTools(lspClients map[string]*lsp.Client) []tools.BaseTool {
+func TaskAgentTools(lspClients *lsp.Registry) []tools.BaseTool {
 	return []tools.BaseTool{
+		tools.NewLSPTool(lspClients),
+		tools.NewSkillTool(config.WorkingDirectory()),
 		tools.NewGlobTool(),
 		tools.NewGrepTool(),
 		tools.NewLsTool(),

@@ -45,6 +45,15 @@ func generateSchema() map[string]any {
 		"properties":  map[string]any{},
 	}
 
+	properties := schema["properties"].(map[string]any)
+	properties["activeProfile"] = map[string]any{"type": "string", "default": "build", "description": "Built-in build/plan or a configured profile name."}
+	properties["profiles"] = map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{
+		"description": map[string]any{"type": "string"}, "model": map[string]any{"type": "string"}, "reasoning": map[string]any{"type": "string"}, "prompt": map[string]any{"type": "string"}, "readOnly": map[string]any{"type": "boolean"}, "tools": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+	}}}
+	properties["extensions"] = map[string]any{"type": "object", "description": "Trusted metadata hooks. Only global configuration can enable them.", "additionalProperties": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"command"}, "properties": map[string]any{
+		"enabled": map[string]any{"type": "boolean", "default": false}, "command": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "string"}, "description": "Absolute executable path, followed by arguments."},
+	}}}
+
 	// Add Data configuration
 	schema["properties"].(map[string]any)["data"] = map[string]any{
 		"type":        "object",

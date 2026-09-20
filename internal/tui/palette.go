@@ -2,6 +2,7 @@ package tui
 
 import (
 	tea "charm.land/bubbletea/v2"
+
 	"github.com/muratmirgun/owncode/internal/tui/components/chat"
 	"github.com/muratmirgun/owncode/internal/tui/components/dialog"
 	"github.com/muratmirgun/owncode/internal/tui/util"
@@ -13,10 +14,14 @@ func (a *appModel) registerPaletteCommands() {
 	a.commands = nil
 	for _, item := range []struct{ id, title, category, shortcut string }{
 		{"sessions", "Switch session", "Suggested", "F3 / ctrl+s"},
+		{"profiles", "Switch agent profile", "Suggested", "/profiles"},
 		{"models", "Switch model", "Suggested", "F2 / ctrl+o"},
+		{"undo", "Undo last turn", "Session", "/undo"},
+		{"redo", "Redo turn", "Session", "/redo"},
 		{"new", "New session", "Session", "/new"},
 		{"agents", "View subagents", "Session", "/agents"},
 		{"reasoning", "Change reasoning", "Session", "F4 / alt+r"},
+		{"skills", "Manage skills", "System", "/skills"},
 		{"settings", "Open settings", "System", "/settings"},
 		{"connect", "Connect provider", "System", "/connect"},
 		{"themes", "Switch theme", "System", "ctrl+t"},

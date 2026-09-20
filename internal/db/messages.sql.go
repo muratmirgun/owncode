@@ -100,8 +100,8 @@ func (q *Queries) GetMessage(ctx context.Context, id string) (Message, error) {
 const listMessagesBySession = `-- name: ListMessagesBySession :many
 SELECT id, session_id, role, parts, model, created_at, updated_at, finished_at
 FROM messages
-WHERE session_id = ?
-ORDER BY created_at ASC
+WHERE session_id = ? AND NOT EXISTS (SELECT 1 FROM hidden_messages h WHERE h.message_id = messages.id)
+ORDER BY created_at ASC, rowid ASC
 `
 
 func (q *Queries) ListMessagesBySession(ctx context.Context, sessionID string) ([]Message, error) {

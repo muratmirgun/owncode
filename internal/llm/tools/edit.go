@@ -35,7 +35,7 @@ type EditResponseMetadata struct {
 }
 
 type editTool struct {
-	lspClients  map[string]*lsp.Client
+	lspClients  *lsp.Registry
 	permissions permission.Service
 	files       history.Service
 }
@@ -91,7 +91,7 @@ When making edits:
 Remember: when making multiple file edits in a row to the same file, you should prefer to send all edits in a single message with multiple calls to this tool, rather than multiple messages with a single call each.`
 )
 
-func NewEditTool(lspClients map[string]*lsp.Client, permissions permission.Service, files history.Service) BaseTool {
+func NewEditTool(lspClients *lsp.Registry, permissions permission.Service, files history.Service) BaseTool {
 	return &editTool{
 		lspClients:  lspClients,
 		permissions: permissions,
@@ -163,9 +163,9 @@ func (e *editTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error)
 		return response, nil
 	}
 
-	waitForLspDiagnostics(ctx, params.FilePath, e.lspClients)
+	waitForLspDiagnostics(ctx, params.FilePath, e.lspClients.Snapshot())
 	text := fmt.Sprintf("<result>\n%s\n</result>\n", response.Content)
-	text += getDiagnostics(params.FilePath, e.lspClients)
+	text += getDiagnostics(params.FilePath, e.lspClients.Snapshot())
 	response.Content = text
 	return response, nil
 }
