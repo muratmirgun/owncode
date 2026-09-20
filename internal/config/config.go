@@ -89,6 +89,7 @@ type ShellConfig struct {
 type Config struct {
 	Extensions    map[string]extension.Config       `json:"extensions,omitempty"`
 	Profiles      map[string]Profile                `json:"profiles,omitempty"`
+	Witch         WitchConfig                       `json:"witch,omitempty"`
 	ActiveProfile string                            `json:"activeProfile,omitempty"`
 	Data          Data                              `json:"data"`
 	WorkingDir    string                            `json:"wd,omitempty"`
@@ -481,6 +482,7 @@ func mergeLocalConfig(workingDir string) error {
 			return fmt.Errorf("read %s.json: %w", name, err)
 		}
 		settings := local.AllSettings()
+		delete(settings, "witch")
 		delete(settings, "extensions") // Only global config can enable executable hooks.
 		if err := viper.MergeConfigMap(settings); err != nil {
 			return fmt.Errorf("merge %s.json: %w", name, err)

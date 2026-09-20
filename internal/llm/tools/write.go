@@ -166,7 +166,7 @@ func (w *writeTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error
 	if strings.HasPrefix(filePath, rootDir) {
 		permissionPath = rootDir
 	}
-	p := w.permissions.Request(
+	p := permission.Request(ctx, w.permissions,
 		permission.CreatePermissionRequest{
 			SessionID:   sessionID,
 			Path:        permissionPath,

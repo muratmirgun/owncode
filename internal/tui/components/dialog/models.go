@@ -21,6 +21,12 @@ import (
 // ModelSelectedMsg requests a model change.
 type ModelSelectedMsg struct{ Model models.Model }
 
+// ModelFocusMsg targets a role-specific selection without changing the chat model.
+type ModelFocusMsg struct {
+	ID    models.ModelID
+	Title string
+}
+
 // CloseModelDialogMsg closes the model picker.
 type CloseModelDialogMsg struct{}
 
@@ -38,6 +44,7 @@ type modelRow struct {
 	model   models.Model
 }
 type modelDialogCmp struct {
+	title                                    string
 	catalog                                  []models.Model
 	rows                                     []modelRow
 	active                                   models.ModelID
@@ -168,6 +175,10 @@ func (m *modelDialogCmp) move(delta int) {
 }
 func (m *modelDialogCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case ModelFocusMsg:
+		m.active = msg.ID
+		m.title = msg.Title
+		m.rebuild(msg.ID)
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -241,7 +252,11 @@ func (m *modelDialogCmp) View() string {
 	inputStyles.Focused.Prompt = base
 	m.search.SetStyles(inputStyles)
 	line := func(s string) string { return base.Width(inner).Render(ansi.Truncate(s, inner, "…")) }
-	title := base.Bold(true).Render("Select model")
+	heading := m.title
+	if heading == "" {
+		heading = "Select model"
+	}
+	title := base.Bold(true).Render(heading)
 	title += strings.Repeat(" ", max(1, inner-lipgloss.Width(title)-3)) + muted.Render("esc")
 	lines := []string{line(title), line(""), line(m.search.View()), line("")}
 	end := min(len(m.rows), m.scrollOffset+m.listHeight())

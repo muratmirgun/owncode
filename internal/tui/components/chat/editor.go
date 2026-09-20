@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/muratmirgun/owncode/internal/app"
+	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/llm/agent"
 	"github.com/muratmirgun/owncode/internal/logging"
 	"github.com/muratmirgun/owncode/internal/message"
@@ -328,12 +329,32 @@ func (m *editorCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 
 func (m *editorCmp) View() string {
 	bg := theme.CurrentTheme().BackgroundSecondary()
-	view := styles.BaseStyle().Background(bg).Width(m.width).Height(m.height).Render(m.editorView())
+	content := m.editorView()
+	if m.home && len(m.attachments) == 0 {
+		t := theme.CurrentTheme()
+		_, profile := config.CurrentProfile()
+		color := t.Secondary()
+		if profile.ReadOnly {
+			color = t.Warning()
+		}
+		border := styles.BaseStyle().Background(bg).Foreground(color).Render("│ ")
+		lines := strings.Split(content, "\n")
+		for i, line := range lines {
+			lines[i] = border + ansi.Truncate(line, max(1, m.width-2), "…")
+		}
+		content = strings.Join(lines, "\n")
+	}
+	view := styles.BaseStyle().Background(bg).Width(m.width).Height(m.height).Render(content)
 	return styles.Surface(view, bg)
 }
 
 func (m *editorCmp) editorView() string {
 	t := theme.CurrentTheme()
+	if m.home {
+		m.textarea.Placeholder = `Ask anything… "Fix a TODO in the codebase"`
+	} else {
+		m.textarea.Placeholder = "Message… (/ commands, @ files)"
+	}
 
 	// Style the prompt with theme colors
 	style := lipgloss.NewStyle().
@@ -343,7 +364,7 @@ func (m *editorCmp) editorView() string {
 
 	if m.home && len(m.attachments) == 0 {
 		m.resizeTextarea(max(1, m.height-3))
-		return lipgloss.JoinVertical(lipgloss.Left, "", m.textarea.View(), "", m.throughputView())
+		return lipgloss.JoinVertical(lipgloss.Left, "", m.textarea.View(), "", " "+m.homeProfileView())
 	}
 	m.resizeTextarea(max(1, m.height-2))
 	if len(m.attachments) == 0 {

@@ -151,7 +151,7 @@ func (m *editorCmp) throughputView() string {
 	}
 	name = ansi.Truncate(name, max(4, m.width/3), "…")
 	if cfg := config.Get(); cfg != nil {
-		if effort := model.ReasoningLevel(cfg.Agents[config.AgentCoder].ReasoningEffort); effort != "" {
+		if effort := model.ReasoningLevel(config.EffectiveCoder().ReasoningEffort); effort != "" {
 			name += " · " + effort
 		}
 	}
@@ -195,4 +195,33 @@ func (m *editorCmp) throughputView() string {
 	}
 	separator := base.Foreground(t.TextMuted()).Render(" · ")
 	return styles.Surface(ansi.Truncate(strings.Join(parts, separator), max(1, m.width), "…"), t.BackgroundSecondary())
+}
+
+// homeProfileView keeps the current agent and model visible before the first message.
+func (m *editorCmp) homeProfileView() string {
+	t := theme.CurrentTheme()
+	base := styles.BaseStyle().Background(t.BackgroundSecondary())
+	name, profile := config.CurrentProfile()
+	switch name {
+	case "build":
+		name = "Build"
+	case "plan":
+		name = "Plan"
+	case "witch":
+		name = "Witch"
+	}
+	color := t.Secondary()
+	if profile.ReadOnly {
+		color = t.Warning()
+	}
+	model := m.app.CoderAgent.Model()
+	modelName := model.Name
+	if modelName == "" {
+		modelName = "No model selected"
+	}
+	line := base.Foreground(color).Render(name) + base.Foreground(t.TextMuted()).Render(" · ") + base.Foreground(t.Text()).Render(modelName)
+	if model.Provider != "" {
+		line += base.Foreground(t.TextMuted()).Render("  " + string(model.Provider))
+	}
+	return ansi.Truncate(line, max(1, m.width-3), "…")
 }

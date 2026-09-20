@@ -1,5 +1,10 @@
 # OwnCode roadmap
 
+Witch update: OwnCode now includes a selectable controller, per-role model and reasoning settings,
+and writable implementation workers. See [Witch orchestration](witch.md).
+Isolated worktrees and an enforced review state machine remain future work.
+
+
 Research date: **2026-09-20**. OwnCode baseline: `f6a5417`.
 
 This document preserves the baseline audit and records the implementation below.

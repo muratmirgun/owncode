@@ -26,17 +26,17 @@ Catalog search needs a valid skills.sh API token. Local and Git skill installati
 | Models | ChatGPT account connection, Claude API connection, custom compatible endpoints, and supported reasoning controls |
 | Tools | Read, search, edit, write, patch, shell commands, URL fetches, and external MCP tools |
 | Changes | Boxed tool output, numbered diff previews, and inline approval choices |
-| Subagents | Parallel read-only exploration and review, compact activity cards, and live transcripts |
+| Subagents | Parallel implementation, exploration, and review with live transcripts |
 | Context | Usage bar, estimated live TPS, response history, and five compaction methods |
 | Project context | Ancestor `AGENTS.md`, Markdown commands, and skills loaded on demand |
 | Skills | Project/user discovery, Git installation, previews, updates, rollback, and optional skills.sh search |
-| Agent profiles | Build, read-only Plan, and custom model/prompt/tool profiles |
+| Agent profiles | Build, read-only Plan, Witch orchestration, and custom profiles |
 | Recovery | Turn checkpoints, file previews, undo/redo, and checks against later edits |
 | Code intelligence | LSP diagnostics, definitions, references, and document/workspace symbols |
 | Interaction | Inline questions, worker follow-ups, and saved worker IDs |
 | Extensions | Version 1 process hooks for completion metadata |
 
-Subagents currently run with read-only tools. A batch runs up to three children concurrently.
+Subagents support read-only research/review and writable implementation roles. A batch runs up to three children concurrently.
 The parent waits for the batch. Workers keep saved IDs and accept follow-ups.
 Writable workers and isolated worktrees remain outside this implementation.
 
@@ -314,11 +314,22 @@ Git installation remains available when search fails.
 ## Agent profiles and worker follow-ups
 
 Enter `/profiles`, or use **Settings → Model → Agent profile**.
-Press **Tab** in the message field to switch between Build and read-only Plan.
-From a custom profile, Tab selects Plan. Your draft stays intact.
+Press **Tab** in the message field to cycle through Build, read-only Plan, Witch, and custom profiles.
+Your draft stays intact.
 Tab still completes command suggestions. Switching requires idle agents.
 Build permits the standard coding tools. Plan restricts the actual tool list to read-only tools.
 An unknown configured profile falls back to a restricted planning policy.
+
+Use **Settings → Orchestration** to configure the built-in **Witch** preset.
+Each of its eight roles has a model selector and supported reasoning choices.
+Select Witch through `/profiles` or Tab. The main chat becomes the controller.
+Unset role models use the base chat model. No paid model is selected automatically.
+
+Implementation workers can edit declared files and use shell commands through the existing approval flow.
+Research and review workers stay read-only. Plan cannot start writable workers.
+Witch routing chooses security, research, complex integration, then routine implementation.
+Workers share the checkout; they do not run in isolated worktrees.
+See [Witch orchestration](docs/witch.md) for the role matrix and boundaries.
 
 Define custom profiles in the global configuration:
 

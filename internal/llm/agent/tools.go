@@ -38,7 +38,8 @@ func CoderAgentTools(
 			tools.NewViewTool(lspClients),
 			tools.NewPatchTool(lspClients, permissions, history),
 			tools.NewWriteTool(lspClients, permissions, history),
-			NewAgentTool(sessions, messages, lspClients),
+			NewAgentTool(sessions, messages, lspClients, WorkerAgentTools(permissions, history, lspClients)...),
+			witchRouteTool{},
 		}, otherTools...,
 	)
 }
@@ -53,4 +54,15 @@ func TaskAgentTools(lspClients *lsp.Registry) []tools.BaseTool {
 		tools.NewSourcegraphTool(),
 		tools.NewViewTool(lspClients),
 	}
+}
+
+// WorkerAgentTools supplies writable workers without recursive delegation or MCP.
+func WorkerAgentTools(permissions permission.Service, history history.Service, clients *lsp.Registry) []tools.BaseTool {
+	return append(TaskAgentTools(clients),
+		tools.NewEditTool(clients, permissions, history),
+		tools.NewWriteTool(clients, permissions, history),
+		tools.NewPatchTool(clients, permissions, history),
+		tools.NewBashTool(permissions),
+		tools.NewFetchTool(permissions),
+	)
 }

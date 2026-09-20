@@ -32,7 +32,7 @@ type settingsCmp struct {
 	focusDraft    string
 }
 
-var settingsTabs = []string{"Appearance", "Model", "Context", "Connections"}
+var settingsTabs = []string{"Appearance", "Model", "Context", "Connections", "Orchestration"}
 
 func NewSettingsCmp() util.Model     { return &settingsCmp{} }
 func (s *settingsCmp) Init() tea.Cmd { return nil }
@@ -103,6 +103,28 @@ func (s *settingsCmp) rows() []settingRow {
 		for _, name := range names {
 			rows = append(rows, settingRow{"Language servers", name, cfg.LSP[name].Command, "Configured language server command. Read-only.", ""})
 		}
+	case 4:
+		active, _ := config.CurrentProfile()
+		rows = append(rows, settingRow{"Witch", "Active profile", active, "Choose Witch to use the main chat as the controller. Build and Plan remain available.", "profiles"})
+		for _, lane := range config.WitchLanes() {
+			selected := config.WitchLaneSettings(lane)
+			agent, _ := config.WitchAgent(lane)
+			model := models.SupportedModels[agent.Model]
+			name := model.Name
+			if name == "" {
+				name = "Not configured"
+			}
+			if selected.Model == "" {
+				name = "Chat model · " + name
+			}
+			label := strings.TrimPrefix(lane, "witch-")
+			rows = append(rows,
+				settingRow{label, "Model", name, "Select this role's model. Selection stays fixed during dispatches.", "witch-model:" + lane},
+				settingRow{label, "Reasoning", reasoningLabel(model, agent.ReasoningEffort), "Choose a supported reasoning level for this role. Changes require idle agents.", "witch-reasoning:" + lane},
+				settingRow{label, "Use chat model", "Reset override", "Clear this role's model and reasoning overrides.", "witch-reset:" + lane},
+			)
+		}
+
 	}
 	if s.query == "" {
 		return rows

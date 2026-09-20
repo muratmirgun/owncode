@@ -296,10 +296,9 @@ func (p *chatPage) homeView() (string, int, int) {
 	logo := homeLogo(editorWidth)
 	keyStyle := base.Foreground(t.Secondary()).Bold(true)
 	labelStyle := base.Foreground(t.TextMuted())
-	hintsText := " " + keyStyle.Render("ctrl+p") + labelStyle.Render(" commands   ") +
-		keyStyle.Render("F2") + labelStyle.Render(" models   ") +
-		keyStyle.Render("F3") + labelStyle.Render(" sessions   ") + keyStyle.Render("F4") + labelStyle.Render(" reasoning")
-	hints := base.Width(editorWidth).Render(ansi.Truncate(hintsText, editorWidth, "…"))
+	hintsText := keyStyle.Render("tab") + labelStyle.Render(" agents   ") +
+		keyStyle.Render("ctrl+p") + labelStyle.Render(" commands")
+	hints := base.Width(editorWidth).Align(lipgloss.Right).Render(ansi.Truncate(hintsText, editorWidth, "…"))
 	tipText := base.Foreground(t.Warning()).Bold(true).Render("● Tip  ") +
 		base.Foreground(t.Text()).Render("Use ") + keyStyle.Render("@") +
 		labelStyle.Render(" to add files to your message")
