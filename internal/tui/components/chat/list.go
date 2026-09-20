@@ -3,7 +3,10 @@ package chat
 import (
 	"context"
 	"fmt"
+	"github.com/charmbracelet/x/ansi"
 	"math"
+	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
@@ -11,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/muratmirgun/owncode/internal/app"
+	"github.com/muratmirgun/owncode/internal/llm/agent"
 	"github.com/muratmirgun/owncode/internal/message"
 	"github.com/muratmirgun/owncode/internal/pubsub"
 	"github.com/muratmirgun/owncode/internal/session"
@@ -25,19 +29,27 @@ type cacheItem struct {
 	content []uiMessage
 }
 type messagesCmp struct {
-	app           *app.App
-	width, height int
-	viewport      viewport.Model
-	session       session.Session
-	messages      []message.Message
-	uiMessages    []uiMessage
-	currentMsgID  string
-	cachedContent map[string]cacheItem
-	spinner       spinner.Model
-	rendering     bool
-	attachments   viewport.Model
+	app              *app.App
+	width, height    int
+	viewport         transcriptViewport
+	session          session.Session
+	messages         []message.Message
+	uiMessages       []uiMessage
+	currentMsgID     string
+	cachedContent    map[string]cacheItem
+	spinner          spinner.Model
+	rendering        bool
+	attachments      viewport.Model
+	child            *messagesCmp
+	taskHistory      map[string][]message.Message
+	revision         uint64
+	dirty            bool
+	framePending     bool
+	animationPending bool
 }
 type renderFinishedMsg struct{}
+type activityFrameMsg struct{ owner *messagesCmp }
+type conversationFrameMsg struct{ owner *messagesCmp }
 
 type MessageKeys struct {
 	PageDown     key.Binding
@@ -48,30 +60,111 @@ type MessageKeys struct {
 
 var messageKeys = MessageKeys{
 	PageDown: key.NewBinding(
-		key.WithKeys("pgdown"),
-		key.WithHelp("f/pgdn", "page down"),
+		key.WithKeys("pgdown", "shift+down"),
+		key.WithHelp("pgdn/shift+↓", "page down"),
 	),
 	PageUp: key.NewBinding(
-		key.WithKeys("pgup"),
-		key.WithHelp("b/pgup", "page up"),
+		key.WithKeys("pgup", "shift+up"),
+		key.WithHelp("pgup/shift+↑", "page up"),
 	),
 	HalfPageUp: key.NewBinding(
 		key.WithKeys("ctrl+u"),
 		key.WithHelp("ctrl+u", "½ page up"),
 	),
 	HalfPageDown: key.NewBinding(
-		key.WithKeys("ctrl+d", "ctrl+d"),
+		key.WithKeys("ctrl+d"),
 		key.WithHelp("ctrl+d", "½ page down"),
 	),
 }
 
 func (m *messagesCmp) Init() tea.Cmd {
-	return tea.Batch(m.viewport.Init(), m.spinner.Tick)
+	return m.viewport.Init()
 }
 
-func (m *messagesCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
+func (m *messagesCmp) Update(msg tea.Msg) (model util.Model, command tea.Cmd) {
+	defer func() {
+		if m.session.ParentSessionID != "" || m.animationPending {
+			return
+		}
+		visible := m
+		if m.child != nil {
+			visible = m.child
+		}
+		if visible.ReadingHistory() || !visible.IsAgentWorking() {
+			return
+		}
+		m.animationPending = true
+		command = tea.Batch(command, tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg { return activityFrameMsg{owner: m} }))
+	}()
+	if frame, ok := msg.(activityFrameMsg); ok && frame.owner == m {
+		m.animationPending = false
+		m.spinner, _ = m.spinner.Update(m.spinner.Tick())
+		if m.child != nil {
+			m.child.spinner = m.spinner
+		}
+		return m, nil
+	}
+
 	var cmds []tea.Cmd
+	if m.child != nil {
+		switch event := msg.(type) {
+		case tea.KeyPressMsg:
+			if event.String() == "up" || event.String() == "esc" {
+				m.child = nil
+				if m.dirty {
+					m.renderView()
+				}
+				return m, nil
+			}
+			_, cmd := m.child.Update(msg)
+			return m, cmd
+		case tea.MouseClickMsg:
+			if event.Button == tea.MouseLeft && event.Y == 0 {
+				m.child = nil
+				if m.dirty {
+					m.renderView()
+				}
+				return m, nil
+			}
+			event.Y--
+			_, cmd := m.child.Update(event)
+			return m, cmd
+		case util.ScrollMsg:
+			event.Wheel.Y--
+			_, cmd := m.child.Update(event)
+			return m, cmd
+		case tea.MouseWheelMsg:
+			event.Y--
+			_, cmd := m.child.Update(event)
+			return m, cmd
+		case SessionSelectedMsg, SessionClearedMsg:
+			m.child = nil
+		default:
+			_, cmd := m.child.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+	}
 	switch msg := msg.(type) {
+	case conversationFrameMsg:
+		if msg.owner != m {
+			return m, tea.Batch(cmds...)
+		}
+		m.framePending = false
+		if m.dirty && m.child == nil && m.viewport.AtBottom() {
+			m.renderView()
+		}
+		return m, tea.Batch(cmds...)
+	case tea.MouseClickMsg:
+		if msg.Button != tea.MouseLeft || msg.X < 0 || msg.X >= m.width || msg.Y < 0 || msg.Y >= m.viewport.Height() {
+			return m, nil
+		}
+		row := msg.Y + m.viewport.YOffset()
+		for _, item := range m.uiMessages {
+			if item.taskID != "" && row >= item.position && row < item.position+item.height {
+				return m, m.openTask(item.taskID)
+			}
+		}
+		return m, nil
 	case dialog.ThemeChangedMsg:
 		m.rerender()
 		return m, nil
@@ -89,12 +182,42 @@ func (m *messagesCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
+		if msg.String() == "end" {
+			m.viewport.GotoBottom()
+			if m.dirty {
+				m.renderView()
+			}
+			return m, nil
+		}
 		if key.Matches(msg, messageKeys.PageUp) || key.Matches(msg, messageKeys.PageDown) ||
 			key.Matches(msg, messageKeys.HalfPageUp) || key.Matches(msg, messageKeys.HalfPageDown) {
 			u, cmd := m.viewport.Update(msg)
 			m.viewport = u
 			cmds = append(cmds, cmd)
+			if m.viewport.AtBottom() && m.dirty {
+				cmds = append(cmds, m.queueRender())
+			}
 		}
+
+	case util.ScrollMsg:
+		if msg.Wheel.X < 0 || msg.Wheel.X >= m.width || msg.Wheel.Y < 0 || msg.Wheel.Y >= m.viewport.Height() {
+			return m, nil
+		}
+		m.viewport, _ = m.viewport.Update(msg)
+		if m.viewport.AtBottom() && m.dirty {
+			return m, m.queueRender()
+		}
+		return m, nil
+	case tea.MouseWheelMsg:
+		if msg.X < 0 || msg.X >= m.width || msg.Y < 0 || msg.Y >= m.viewport.Height() {
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		if m.viewport.AtBottom() && m.dirty {
+			return m, tea.Batch(cmd, m.queueRender())
+		}
+		return m, cmd
 
 	case renderFinishedMsg:
 		m.rendering = false
@@ -109,6 +232,19 @@ func (m *messagesCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 		}
 	case pubsub.Event[message.Message]:
 		needsRerender := false
+		if msg.Payload.SessionID != m.session.ID {
+			for _, parent := range m.messages {
+				for _, call := range parent.ToolCalls() {
+					if call.Name == agent.AgentToolName && call.ID == msg.Payload.SessionID {
+						if msg.Payload.Role == message.Assistant {
+							m.taskHistory[call.ID] = []message.Message{msg.Payload}
+						}
+						delete(m.cachedContent, parent.ID)
+						needsRerender = true
+					}
+				}
+			}
+		}
 		if msg.Type == pubsub.CreatedEvent {
 			if msg.Payload.SessionID == m.session.ID {
 
@@ -152,24 +288,22 @@ func (m *messagesCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 			}
 		}
 		if needsRerender {
-			m.renderView()
-			if len(m.messages) > 0 {
-				if (msg.Type == pubsub.CreatedEvent) ||
-					(msg.Type == pubsub.UpdatedEvent && msg.Payload.ID == m.messages[len(m.messages)-1].ID) {
-					m.viewport.GotoBottom()
-				}
+			if m.child != nil || !m.viewport.AtBottom() || msg.Payload.SessionID != m.session.ID || (msg.Type == pubsub.UpdatedEvent && msg.Payload.Role == message.Assistant) {
+				cmds = append(cmds, m.queueRender())
+			} else {
+				m.renderView()
 			}
 		}
 	}
 
-	spinner, cmd := m.spinner.Update(msg)
-	m.spinner = spinner
-	cmds = append(cmds, cmd)
 	return m, tea.Batch(cmds...)
 }
 
 func (m *messagesCmp) IsAgentWorking() bool {
-	return m.app.CoderAgent.IsSessionBusy(m.session.ID)
+	if m.session.ParentSessionID != "" {
+		return agent.IsTaskRunning(m.session.ID)
+	}
+	return m.app.CoderAgent != nil && m.app.CoderAgent.IsSessionBusy(m.session.ID)
 }
 
 func formatTimeDifference(unixTime1, unixTime2 int64) string {
@@ -185,9 +319,11 @@ func formatTimeDifference(unixTime1, unixTime2 int64) string {
 }
 
 func (m *messagesCmp) renderView() {
+	m.revision++
+	m.dirty = false
+	followBottom := m.viewport.AtBottom()
 	m.uiMessages = make([]uiMessage, 0)
 	pos := 0
-	baseStyle := styles.BaseStyle()
 
 	if m.width == 0 {
 		return
@@ -217,12 +353,32 @@ func (m *messagesCmp) renderView() {
 				continue
 			}
 			isSummary := m.session.SummaryMessageID == msg.ID
+			// Load only on first display; live child events update the card cache.
+			for _, call := range msg.ToolCalls() {
+				if call.Name != agent.AgentToolName {
+					continue
+				}
+				if _, loaded := m.taskHistory[call.ID]; loaded {
+					continue
+				}
+				m.taskHistory[call.ID] = nil
+				if m.app.Messages != nil {
+					history, err := m.app.Messages.List(context.Background(), call.ID)
+					if err == nil {
+						for _, child := range history {
+							if child.Role == message.Assistant {
+								m.taskHistory[call.ID] = []message.Message{child}
+							}
+						}
+					}
+				}
+			}
 
 			assistantMessages := renderAssistantMessage(
 				msg,
 				inx,
 				m.messages,
-				m.app.Messages,
+				m.taskHistory,
 				m.currentMsgID,
 				isSummary,
 				m.width,
@@ -239,30 +395,30 @@ func (m *messagesCmp) renderView() {
 		}
 	}
 
-	messages := make([]string, 0)
-	for _, v := range m.uiMessages {
-		messages = append(messages, lipgloss.JoinVertical(lipgloss.Left, v.content),
-			baseStyle.
-				Width(m.width).
-				Render(
-					"",
-				),
-		)
+	m.viewport.SetItems(m.uiMessages)
+	for i := range m.uiMessages {
+		m.uiMessages[i].position = m.viewport.items[i].start
 	}
+	if followBottom {
+		m.viewport.GotoBottom()
+	}
+}
 
-	m.viewport.SetContent(
-		baseStyle.
-			Width(m.width).
-			Render(
-				lipgloss.JoinVertical(
-					lipgloss.Top,
-					messages...,
-				),
-			),
-	)
+func (m *messagesCmp) queueRender() tea.Cmd {
+	m.dirty = true
+	if m.child != nil || m.framePending || !m.viewport.AtBottom() {
+		return nil
+	}
+	m.framePending = true
+	return tea.Tick(time.Second/30, func(time.Time) tea.Msg { return conversationFrameMsg{owner: m} })
 }
 
 func (m *messagesCmp) View() string {
+	if m.child != nil {
+		t := theme.CurrentTheme()
+		header := styles.BaseStyle().Width(m.width).Foreground(t.Primary()).Render(ansi.Truncate("↑ Back to main chat · "+m.child.session.Title, m.width, "…"))
+		return header + "\n" + m.child.View()
+	}
 	baseStyle := styles.BaseStyle()
 
 	if m.rendering {
@@ -297,16 +453,7 @@ func (m *messagesCmp) View() string {
 			)
 	}
 
-	return baseStyle.
-		Width(m.width).
-		Render(
-			lipgloss.JoinVertical(
-				lipgloss.Top,
-				m.viewport.View(),
-				m.working(),
-				m.help(),
-			),
-		)
+	return strings.Join([]string{m.viewport.View(), m.working(), m.help()}, "\n")
 }
 
 func hasToolsWithoutResponse(messages []message.Message) bool {
@@ -346,53 +493,35 @@ func hasUnfinishedToolCalls(messages []message.Message) bool {
 }
 
 func (m *messagesCmp) working() string {
-	text := ""
-	if m.IsAgentWorking() && len(m.messages) > 0 {
-		t := theme.CurrentTheme()
-		baseStyle := styles.BaseStyle()
-
-		task := "Thinking..."
-		lastMessage := m.messages[len(m.messages)-1]
-		if hasToolsWithoutResponse(m.messages) {
-			task = "Waiting for tool response..."
-		} else if hasUnfinishedToolCalls(m.messages) {
-			task = "Building tool call..."
-		} else if !lastMessage.IsFinished() {
-			task = "Generating..."
-		}
-		if task != "" {
-			text += baseStyle.
-				Width(m.width).
-				Foreground(t.Primary()).
-				Bold(true).
-				Render(fmt.Sprintf("%s %s ", m.spinner.View(), task))
-		}
+	if m.dirty && !m.viewport.AtBottom() {
+		return styles.BaseStyle().Foreground(theme.CurrentTheme().TextMuted()).Width(m.width).Render("Reading history · end latest")
 	}
-	return text
-}
-
-func (m *messagesCmp) help() string {
-	if m.app.CoderAgent.Model().ID == "" {
-		return "No model configured. Configure a provider and restart to send messages."
+	if !m.IsAgentWorking() {
+		return ""
 	}
 	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
-
-	text := ""
-
-	if m.app.CoderAgent.IsBusy() {
-		text += lipgloss.JoinHorizontal(
-			lipgloss.Left,
-			baseStyle.Foreground(t.TextMuted()).Bold(true).Render("press "),
-			baseStyle.Foreground(t.Text()).Bold(true).Render("esc"),
-			baseStyle.Foreground(t.TextMuted()).Bold(true).Render(" to exit cancel"),
-		)
+	base := styles.BaseStyle()
+	label := "Waiting for response"
+	if len(m.messages) > 0 {
+		last := m.messages[len(m.messages)-1]
+		switch {
+		case hasToolsWithoutResponse(m.messages):
+			label = "Running tools"
+		case hasUnfinishedToolCalls(m.messages):
+			label = "Preparing tools"
+		case last.Role == message.Assistant && !last.IsFinished():
+			label = "Thinking"
+			if last.Content().Text != "" {
+				label = "Responding"
+			}
+		}
 	}
-
-	return baseStyle.
-		Width(m.width).
-		Render(text)
+	indicator := base.Foreground(t.Primary()).Render(m.spinner.View())
+	text := indicator + base.Foreground(t.TextMuted()).Render("  "+label+"  ·  ") + base.Foreground(t.Text()).Render("esc") + base.Foreground(t.TextMuted()).Render(" interrupt")
+	return base.Width(m.width).Render(ansi.Truncate(text, max(1, m.width), "…"))
 }
+
+func (m *messagesCmp) help() string { return "" }
 
 func (m *messagesCmp) initialScreen() string {
 	baseStyle := styles.BaseStyle()
@@ -415,16 +544,23 @@ func (m *messagesCmp) rerender() {
 }
 
 func (m *messagesCmp) SetSize(width, height int) tea.Cmd {
+	if m.child != nil {
+		m.child.SetSize(width, max(1, height-1))
+	}
 	if m.width == width && m.height == height {
 		return nil
 	}
+	followBottom := m.viewport.AtBottom()
 	m.width = width
 	m.height = height
 	m.viewport.SetWidth(width)
-	m.viewport.SetHeight(height - 2)
+	m.viewport.SetHeight(max(1, height-2))
 	m.attachments.SetWidth(width + 40)
 	m.attachments.SetHeight(3)
 	m.rerender()
+	if followBottom {
+		m.viewport.GotoBottom()
+	}
 	return nil
 }
 
@@ -437,6 +573,7 @@ func (m *messagesCmp) SetSession(session session.Session) tea.Cmd {
 		return nil
 	}
 	m.session = session
+	m.taskHistory = make(map[string][]message.Message)
 	messages, err := m.app.Messages.List(context.Background(), session.ID)
 	if err != nil {
 		return util.ReportError(err)
@@ -446,11 +583,10 @@ func (m *messagesCmp) SetSession(session session.Session) tea.Cmd {
 		m.currentMsgID = m.messages[len(m.messages)-1].ID
 	}
 	delete(m.cachedContent, m.currentMsgID)
-	m.rendering = true
-	return func() tea.Msg {
-		m.renderView()
-		return renderFinishedMsg{}
-	}
+	m.renderView()
+	m.viewport.GotoBottom()
+	m.rendering = false
+	return nil
 }
 
 func (m *messagesCmp) BindingKeys() []key.Binding {
@@ -464,8 +600,10 @@ func (m *messagesCmp) BindingKeys() []key.Binding {
 
 func NewMessagesCmp(app *app.App) util.Model {
 	s := spinner.New()
-	s.Spinner = spinner.Pulse
-	vp := viewport.New()
+	s.Spinner = spinner.Spinner{Frames: []string{
+		"█▓······", "·█▓·····", "··█▓····", "···█▓···", "····█▓··", "·····█▓·", "······█▓", "▓······█",
+	}, FPS: 120 * time.Millisecond}
+	vp := newTranscriptViewport()
 	attachmets := viewport.New()
 	vp.KeyMap.PageUp = messageKeys.PageUp
 	vp.KeyMap.PageDown = messageKeys.PageDown
@@ -474,8 +612,33 @@ func NewMessagesCmp(app *app.App) util.Model {
 	return &messagesCmp{
 		app:           app,
 		cachedContent: make(map[string]cacheItem),
+		taskHistory:   make(map[string][]message.Message),
 		viewport:      vp,
 		spinner:       s,
 		attachments:   attachmets,
 	}
+}
+
+// ScrollOffset returns the active transcript position.
+func (m *messagesCmp) ScrollOffset() int {
+	if m.child != nil {
+		return m.child.ScrollOffset()
+	}
+	return m.viewport.YOffset()
+}
+
+// ReadingHistory reports whether stream updates leave the visible rows frozen.
+func (m *messagesCmp) ReadingHistory() bool {
+	if m.child != nil {
+		return m.child.ReadingHistory()
+	}
+	return !m.viewport.AtBottom()
+}
+
+// ScrollFrameKey changes when the visible transcript or its history hint changes.
+func (m *messagesCmp) ScrollFrameKey() string {
+	if m.child != nil {
+		return m.child.ScrollFrameKey()
+	}
+	return fmt.Sprintf("%s/%d/%d/%t", m.session.ID, m.revision, m.viewport.YOffset(), m.dirty)
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/muratmirgun/owncode/internal/completions"
 	"github.com/muratmirgun/owncode/internal/llm/agent"
 	"github.com/muratmirgun/owncode/internal/message"
+	"github.com/muratmirgun/owncode/internal/pubsub"
 	"github.com/muratmirgun/owncode/internal/session"
 	"github.com/muratmirgun/owncode/internal/tui/components/chat"
 	"github.com/muratmirgun/owncode/internal/tui/components/dialog"
@@ -24,6 +25,7 @@ import (
 var ChatPage PageID = "chat"
 
 type chatPage struct {
+	scrollFrames         map[string]string
 	app                  *app.App
 	editor               layout.Container
 	messages             layout.Container
@@ -66,8 +68,33 @@ func (p *chatPage) Init() tea.Cmd {
 }
 
 func (p *chatPage) Update(msg tea.Msg) (util.Model, tea.Cmd) {
+	_, keepFrames := msg.(tea.MouseWheelMsg)
+	if _, ok := msg.(util.ScrollMsg); ok {
+		keepFrames = true
+	}
+	if event, ok := msg.(pubsub.Event[message.Message]); ok && event.Payload.SessionID != p.session.ID {
+		keepFrames = p.messages.(interface{ ReadingHistory() bool }).ReadingHistory()
+	}
+	if !keepFrames {
+		clear(p.scrollFrames)
+	}
 	var cmds []tea.Cmd
+	if child, ok := p.messages.(interface{ ReadOnly() bool }); ok && child.ReadOnly() {
+		switch msg.(type) {
+		case tea.KeyPressMsg, tea.MouseWheelMsg, tea.MouseClickMsg, util.ScrollMsg:
+			_, cmd := p.messages.Update(msg)
+			return p, cmd
+		case tea.PasteMsg, chat.SendMsg:
+			return p, nil
+		}
+	}
 	switch msg := msg.(type) {
+	case tea.MouseClickMsg:
+		if !p.isHome() && !p.showCompletionDialog {
+			_, cmd := p.messages.Update(msg)
+			return p, cmd
+		}
+		return p, nil
 	case chat.PermissionPanelMsg:
 		p.permissionView = string(msg)
 		cmd := p.layout.SetBottomAccessory(string(msg))
@@ -111,7 +138,20 @@ func (p *chatPage) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 		}
 	case chat.SessionSelectedMsg:
 		p.session = msg
+	case tea.MouseWheelMsg, util.ScrollMsg:
+		if !p.isHome() && !p.showCompletionDialog {
+			_, cmd := p.messages.Update(msg)
+			return p, cmd
+		}
+		return p, nil
 	case tea.KeyPressMsg:
+		if !p.isHome() && !p.showCompletionDialog && p.slashView == "" {
+			switch msg.String() {
+			case "pgup", "pgdown", "shift+up", "shift+down", "end":
+				_, cmd := p.messages.Update(msg)
+				return p, cmd
+			}
+		}
 		switch {
 		case key.Matches(msg, keyMap.ShowCompletionDialog):
 			p.showCompletionDialog = true
@@ -179,6 +219,7 @@ func (p *chatPage) sendMessage(text string, attachments []message.Attachment) te
 }
 
 func (p *chatPage) SetSize(width, height int) tea.Cmd {
+	clear(p.scrollFrames)
 	cmd := p.layout.SetSize(width, height)
 	p.editor.Update(chat.HomeEditorMsg(p.isHome()))
 	if p.isHome() {
@@ -197,6 +238,22 @@ func (p *chatPage) GetSize() (int, int) {
 }
 
 func (p *chatPage) View() string {
+	offset := p.messages.(interface{ ScrollFrameKey() string }).ScrollFrameKey()
+	if frame, ok := p.scrollFrames[offset]; ok {
+		return frame
+	}
+	frame := p.renderFrame()
+	if len(p.scrollFrames) >= 8 {
+		clear(p.scrollFrames)
+	}
+	if p.scrollFrames == nil {
+		p.scrollFrames = make(map[string]string)
+	}
+	p.scrollFrames[offset] = frame
+	return frame
+}
+
+func (p *chatPage) renderFrame() string {
 	layoutView := p.layout.View()
 	editorX := 0
 	_, layoutHeight := p.layout.GetSize()
@@ -326,4 +383,10 @@ func NewChatPage(app *app.App) util.Model {
 			layout.WithBottomPanel(editorContainer),
 		),
 	}
+}
+
+// PermissionWidth returns the width of the conversation column.
+func (p *chatPage) PermissionWidth() int {
+	width, _ := p.messages.GetSize()
+	return width
 }

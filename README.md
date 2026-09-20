@@ -727,3 +727,7 @@ Function keys also work without Control: `F2` opens models, `F3` opens sessions,
 and `F4` cycles reasoning. In the model picker, `F5` connects a provider and
 `F6` toggles a favorite. On Mac keyboards that use media keys, hold `Fn` with
 the function key. `/models` and `/sessions` remain available as typed commands.
+
+Use `↑` at the first input line to recall sent messages in the current session.
+Use `↓` at the last input line to move forward and restore your unsent draft.
+Recalled messages remain editable; Enter sends them. Attachments are not recalled.

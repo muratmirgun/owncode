@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/llm/tools"
 	"github.com/muratmirgun/owncode/internal/permission"
 	"github.com/stretchr/testify/require"
@@ -20,6 +21,13 @@ func TestDockedPermissionKeepsActions(t *testing.T) {
 	require.Equal(t, 100, lipgloss.Width(view))
 	require.LessOrEqual(t, lipgloss.Height(view), 14)
 	require.Contains(t, view, "Permission required")
+	require.Contains(t, view, "Allow [a]")
+	require.Contains(t, view, "v details")
+	require.Contains(t, ansi.Strip(view), "go test ./...")
+	require.LessOrEqual(t, lipgloss.Height(view), 7)
+	p.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
+	require.Greater(t, lipgloss.Height(p.View()), lipgloss.Height(view))
+	p.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
 	for _, test := range []struct {
 		key    string
 		action PermissionAction

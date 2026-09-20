@@ -193,6 +193,14 @@ func (a appModel) Init() tea.Cmd {
 func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
+	if batch, ok := msg.(MessageBatchMsg); ok {
+		for _, event := range batch {
+			updated, next := a.Update(event)
+			a = updated.(appModel)
+			cmds = append(cmds, next)
+		}
+		return a, tea.Batch(cmds...)
+	}
 	if a.showConnect {
 		a.connect, cmd = a.connect.Update(msg)
 		cmds = append(cmds, cmd)
@@ -580,6 +588,10 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case tea.MouseWheelMsg:
+		if a.showSettings || a.showHelp {
+			return a, nil
+		}
 	case tea.PasteMsg:
 		if a.showSettings && !a.showModelDialog && !a.showThemeDialog && !a.showPermissions && !a.showQuit {
 			a.settings, cmd = a.settings.Update(msg)
@@ -824,6 +836,12 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a *appModel) syncPermissionPanel() tea.Cmd {
 	view := ""
 	if a.showPermissions {
+		width := a.width
+		if page, ok := a.pages[page.ChatPage].(interface{ PermissionWidth() int }); ok {
+			width = page.PermissionWidth()
+		}
+		updated, _ := a.permissions.Update(tea.WindowSizeMsg{Width: width, Height: a.height})
+		a.permissions = updated.(dialog.PermissionDialogCmp)
 		view = a.permissions.View()
 	} else if a.isCompacting {
 		t := theme.CurrentTheme()
@@ -1127,15 +1145,16 @@ If there are Cursor rules (in .cursor/rules/ or .cursorrules) or Copilot rules (
 func (a appModel) View() tea.View {
 	view := tea.NewView(a.render())
 	view.AltScreen = true
+	view.MouseMode = tea.MouseModeCellMotion
 	view.BackgroundColor = theme.CurrentTheme().Background()
 	view.ForegroundColor = theme.CurrentTheme().Text()
 	return view
 }
 
-// isInputMessage keeps keyboard and paste input inside the active dialog.
+// isInputMessage keeps keyboard, paste, and wheel input inside the active dialog.
 func isInputMessage(msg tea.Msg) bool {
 	switch msg.(type) {
-	case tea.KeyPressMsg, tea.KeyReleaseMsg, tea.PasteMsg:
+	case tea.KeyPressMsg, tea.KeyReleaseMsg, tea.PasteMsg, tea.MouseWheelMsg, tea.MouseClickMsg, util.ScrollMsg:
 		return true
 	default:
 		return false

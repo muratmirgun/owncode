@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -208,17 +209,11 @@ func jevContext(ctx context.Context, msgs []message.Message, settings config.Jev
 func compactWithJev(ctx context.Context, msgs []message.Message, settings config.JevSettings, directory, focus string, scorer engine.Scorer) (compactResult, error) {
 	normalized := make([]engine.Message, 0, len(msgs))
 	originals := make(map[string]message.Message)
+	hasToolText := false
 	for i, msg := range msgs {
 		id := fmt.Sprintf("m%d", i)
 		item := engine.Message{ID: id, Role: string(msg.Role), Text: msg.Content().Text}
-		for _, part := range msg.Parts {
-			switch part.(type) {
-			case message.BinaryContent, message.ImageURLContent, message.NativeContext:
-				return compactResult{}, fmt.Errorf("jev supports text context; select shake in Settings > Context > Method and run /compact for attachments")
-			case message.ReasoningContent:
-				item.Pinned = true
-			}
-		}
+
 		for _, call := range msg.ToolCalls() {
 			sideEffect := true
 			switch call.Name {
@@ -229,14 +224,35 @@ func compactWithJev(ctx context.Context, msgs []message.Message, settings config
 		}
 		if results := msg.ToolResults(); len(results) > 0 {
 			for j, result := range results {
+				hasToolText = hasToolText || strings.TrimSpace(result.Content) != ""
 				child := engine.Message{ID: fmt.Sprintf("%s-r%d", id, j), Role: "tool", Text: result.Content, ToolCallID: result.ToolCallID, Unresolved: result.IsError}
 				normalized = append(normalized, child)
-				originals[child.ID] = message.Message{Role: message.Tool, Parts: []message.ContentPart{result}}
+				original := msg
+				original.Parts = []message.ContentPart{result}
+				// Keep non-tool parts once when splitting multiple tool results.
+				if j == 0 {
+					for _, part := range msg.Parts {
+						if _, isResult := part.(message.ToolResult); !isResult {
+							original.Parts = append(original.Parts, part)
+						}
+					}
+				}
+				// Native tool messages replay their raw payload, not the text mirror.
+				for _, part := range msg.Parts {
+					if _, native := part.(message.NativeContext); native {
+						child.Pinned = true
+					}
+				}
+				normalized[len(normalized)-1] = child
+				originals[child.ID] = original
 			}
 			continue
 		}
 		normalized = append(normalized, item)
 		originals[id] = msg
+	}
+	if !hasToolText {
+		return compactResult{notice: "Jev · no tool text to compact; conversation and attachments preserved"}, nil
 	}
 	store, err := archive.New(filepath.Join(directory, "jev"))
 	if err != nil {
@@ -246,7 +262,7 @@ func compactWithJev(ctx context.Context, msgs []message.Message, settings config
 	if err != nil {
 		return compactResult{}, err
 	}
-	compressor, err := engine.New(scorer, counter, store)
+	compressor, err := engine.New(textOnlyJevScorer{scorer}, counter, store)
 	if err != nil {
 		return compactResult{}, err
 	}
@@ -264,6 +280,9 @@ func compactWithJev(ctx context.Context, msgs []message.Message, settings config
 	result, err := compressor.Compact(ctx, engine.Request{Messages: normalized, Goal: focus, TargetTokens: target})
 	if err != nil {
 		return compactResult{}, err
+	}
+	if !result.Applied && result.Status == "unchanged" && result.BudgetMet {
+		return compactResult{notice: "Jev · text context already fits the target; context unchanged"}, nil
 	}
 	if !result.Applied || !result.BudgetMet {
 		return compactResult{}, fmt.Errorf("jev: %s; context unchanged (%d tokens, target %d)", result.Status, result.Stats.OutputTokens, target)
@@ -285,6 +304,9 @@ func compactWithJev(ctx context.Context, msgs []message.Message, settings config
 		for j, part := range original.Parts {
 			switch content := part.(type) {
 			case message.TextContent:
+				if item.Role == "tool" {
+					continue
+				}
 				content.Text = item.Text
 				original.Parts[j] = content
 			case message.ToolResult:
@@ -303,4 +325,24 @@ func compactWithJev(ctx context.Context, msgs []message.Message, settings config
 	}
 	result.Stats.OutputTokens = outputTokens
 	return compactResult{messages: output, tokens: int64(result.Stats.OutputTokens), notice: fmt.Sprintf("Jev compacted · %d → %d text tokens · archive %s", result.Stats.InputTokens, result.Stats.OutputTokens, result.SnapshotID)}, nil
+}
+
+// textOnlyJevScorer prevents whole-message removal, which would also discard
+// attachments and opaque provider state absent from the text projection.
+type textOnlyJevScorer struct{ engine.Scorer }
+
+func (s textOnlyJevScorer) Score(ctx context.Context, evaluation engine.Evaluation) (map[string]engine.Score, error) {
+	scores, err := s.Scorer.Score(ctx, evaluation)
+	if err != nil {
+		return nil, err
+	}
+	result := maps.Clone(scores)
+	for id, score := range result {
+		score.Loss = maps.Clone(score.Loss)
+		if _, ok := score.Loss["drop"]; ok {
+			score.Loss["drop"] = 1
+		}
+		result[id] = score
+	}
+	return result, nil
 }

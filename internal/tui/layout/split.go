@@ -4,6 +4,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/muratmirgun/owncode/internal/tui/styles"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
 	"github.com/muratmirgun/owncode/internal/tui/util"
 )
@@ -89,43 +90,25 @@ func (s *splitPaneLayout) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 }
 
 func (s *splitPaneLayout) View() string {
-	var topSection string
-
-	if s.leftPanel != nil && s.rightPanel != nil {
-		leftView := s.leftPanel.View()
-		rightView := s.rightPanel.View()
-		topSection = lipgloss.JoinHorizontal(lipgloss.Top, leftView, rightView)
-	} else if s.leftPanel != nil {
-		topSection = s.leftPanel.View()
-	} else if s.rightPanel != nil {
-		topSection = s.rightPanel.View()
-	} else {
-		topSection = ""
+	var left []string
+	if s.leftPanel != nil {
+		left = append(left, s.leftPanel.View())
 	}
-
-	var finalView string
-
-	if s.bottomPanel != nil && topSection != "" {
-		bottomView := s.bottomPanel.View()
-		if s.bottomAccessory != "" {
-			topSection = lipgloss.JoinVertical(lipgloss.Left, topSection, s.bottomAccessory)
-		}
-		finalView = lipgloss.JoinVertical(lipgloss.Left, topSection, bottomView)
-	} else if s.bottomPanel != nil {
-		finalView = s.bottomPanel.View()
-	} else {
-		finalView = topSection
+	if s.bottomAccessory != "" {
+		left = append(left, s.bottomAccessory)
+	}
+	if s.bottomPanel != nil {
+		left = append(left, s.bottomPanel.View())
+	}
+	finalView := lipgloss.JoinVertical(lipgloss.Left, left...)
+	if s.rightPanel != nil {
+		finalView = lipgloss.JoinHorizontal(lipgloss.Top, finalView, s.rightPanel.View())
 	}
 
 	if finalView != "" {
 		t := theme.CurrentTheme()
 
-		style := lipgloss.NewStyle().
-			Width(s.width).
-			Height(s.height).
-			Background(t.Background())
-
-		return style.Render(finalView)
+		return styles.Surface(styles.FitFrame(finalView, s.width, s.height), t.Background())
 	}
 
 	return finalView
@@ -140,7 +123,11 @@ func (s *splitPaneLayout) SetSize(width, height int) tea.Cmd {
 		topHeight = int(float64(height) * s.verticalRatio)
 		bottomHeight = min(height, max(3, height-topHeight))
 		if preferred, ok := s.bottomPanel.(interface{ PreferredHeight(int) int }); ok {
-			if requested := preferred.PreferredHeight(width); requested > 0 {
+			editorWidth := width
+			if s.leftPanel != nil && s.rightPanel != nil {
+				editorWidth = int(float64(width) * s.ratio)
+			}
+			if requested := preferred.PreferredHeight(editorWidth); requested > 0 {
 				bottomHeight = min(max(2, height/3), requested)
 			}
 		}
@@ -173,12 +160,12 @@ func (s *splitPaneLayout) SetSize(width, height int) tea.Cmd {
 	}
 
 	if s.rightPanel != nil {
-		cmd := s.rightPanel.SetSize(rightWidth, topHeight)
+		cmd := s.rightPanel.SetSize(rightWidth, height)
 		cmds = append(cmds, cmd)
 	}
 
 	if s.bottomPanel != nil {
-		cmd := s.bottomPanel.SetSize(width, bottomHeight)
+		cmd := s.bottomPanel.SetSize(max(1, leftWidth), bottomHeight)
 		cmds = append(cmds, cmd)
 	}
 	return tea.Batch(cmds...)
