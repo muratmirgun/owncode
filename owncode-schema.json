@@ -117,7 +117,7 @@
   "properties": {
     "activeProfile": {
       "default": "build",
-      "description": "Built-in build/plan or a configured profile name.",
+      "description": "Built-in build/plan/witch or a configured profile name.",
       "type": "string"
     },
     "agents": {
@@ -600,6 +600,131 @@
     "wd": {
       "description": "Working directory for the application",
       "type": "string"
+    },
+    "witch": {
+      "additionalProperties": false,
+      "description": "Global settings for the built-in Witch orchestrator.",
+      "properties": {
+        "lanes": {
+          "additionalProperties": false,
+          "properties": {
+            "controller": {
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "description": "Configured model ID; omit to use the base chat model.",
+                  "type": "string"
+                },
+                "reasoning": {
+                  "description": "A reasoning level supported by this role's model.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "witch-complex": {
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "description": "Configured model ID; omit to use the base chat model.",
+                  "type": "string"
+                },
+                "reasoning": {
+                  "description": "A reasoning level supported by this role's model.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "witch-final-reviewer": {
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "description": "Configured model ID; omit to use the base chat model.",
+                  "type": "string"
+                },
+                "reasoning": {
+                  "description": "A reasoning level supported by this role's model.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "witch-re-reviewer": {
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "description": "Configured model ID; omit to use the base chat model.",
+                  "type": "string"
+                },
+                "reasoning": {
+                  "description": "A reasoning level supported by this role's model.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "witch-researcher": {
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "description": "Configured model ID; omit to use the base chat model.",
+                  "type": "string"
+                },
+                "reasoning": {
+                  "description": "A reasoning level supported by this role's model.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "witch-routine": {
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "description": "Configured model ID; omit to use the base chat model.",
+                  "type": "string"
+                },
+                "reasoning": {
+                  "description": "A reasoning level supported by this role's model.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "witch-security": {
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "description": "Configured model ID; omit to use the base chat model.",
+                  "type": "string"
+                },
+                "reasoning": {
+                  "description": "A reasoning level supported by this role's model.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "witch-task-reviewer": {
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "description": "Configured model ID; omit to use the base chat model.",
+                  "type": "string"
+                },
+                "reasoning": {
+                  "description": "A reasoning level supported by this role's model.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
     }
   },
   "title": "OwnCode Configuration",

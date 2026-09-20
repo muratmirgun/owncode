@@ -24,13 +24,13 @@ type Profile struct {
 
 // ProfileNames returns built-in profiles followed by configured profiles.
 func ProfileNames() []string {
-	names := []string{"build", "plan"}
+	names := []string{"build", "plan", "witch"}
 	if cfg == nil {
 		return names
 	}
 	extra := []string{}
 	for name := range cfg.Profiles {
-		if name != "build" && name != "plan" {
+		if name != "build" && name != "plan" && name != "witch" {
 			extra = append(extra, name)
 		}
 	}
@@ -47,8 +47,12 @@ func CurrentProfile() (string, Profile) {
 	if name == "" {
 		name = "build"
 	}
+	if name == "witch" {
+		lane := WitchLaneSettings("controller")
+		return name, Profile{Description: "Witch orchestrator", Model: lane.Model, Reasoning: lane.Reasoning, Prompt: WitchControllerPrompt}
+	}
 	profile, known := cfg.Profiles[name]
-	if !known && name != "build" && name != "plan" {
+	if !known && name != "build" && name != "plan" && name != "witch" {
 		return "plan", Profile{ReadOnly: true, Prompt: "The configured profile is unknown. Explain the issue. Do not modify files."}
 	}
 	if name == "plan" {
@@ -80,6 +84,14 @@ func SelectProfile(name string) error {
 			return fmt.Errorf("profile model is unavailable")
 		}
 	}
+	if err := saveGlobalField("activeProfile", name); err != nil {
+		return err
+	}
+	cfg.ActiveProfile = name
+	return nil
+}
+
+func saveGlobalField(key string, value any) error {
 	path := viper.ConfigFileUsed()
 	if path == "" {
 		home, err := os.UserHomeDir()
@@ -101,7 +113,10 @@ func SelectProfile(name string) error {
 	if fields == nil {
 		fields = map[string]json.RawMessage{}
 	}
-	fields["activeProfile"], _ = json.Marshal(name)
+	fields[key], err = json.Marshal(value)
+	if err != nil {
+		return err
+	}
 	data, err = json.MarshalIndent(fields, "", "  ")
 	if err != nil {
 		return err
@@ -121,6 +136,5 @@ func SelectProfile(name string) error {
 	if err = os.Rename(f.Name(), path); err != nil {
 		return err
 	}
-	cfg.ActiveProfile = name
 	return nil
 }

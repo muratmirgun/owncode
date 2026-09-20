@@ -89,7 +89,7 @@ func (b *mcpTool) Run(ctx context.Context, params tools.ToolCall) (tools.ToolRes
 		return tools.ToolResponse{}, fmt.Errorf("session ID and message ID are required for creating a new file")
 	}
 	permissionDescription := fmt.Sprintf("execute %s with the following parameters: %s", b.Info().Name, params.Input)
-	p := b.permissions.Request(
+	p := permission.Request(ctx, b.permissions,
 		permission.CreatePermissionRequest{
 			SessionID:   sessionID,
 			Path:        config.WorkingDirectory(),

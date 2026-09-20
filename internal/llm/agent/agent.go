@@ -86,7 +86,7 @@ func NewAgent(
 	messages message.Service,
 	agentTools []tools.BaseTool,
 ) (Service, error) {
-	if agentName == config.AgentCoder && config.Get().Agents[agentName].Model == "" {
+	if agentName == config.AgentCoder && config.EffectiveCoder().Model == "" {
 		return &agent{
 			Broker:   pubsub.NewBroker[AgentEvent](),
 			sessions: sessions,
@@ -305,16 +305,16 @@ func (a *agent) processGeneration(ctx context.Context, sessionID, content string
 	if err != nil {
 		return a.err(fmt.Errorf("failed to list messages: %w", err))
 	}
-	if len(msgs) == 0 {
-		go func() {
+	if len(msgs) == 0 && a.titleProvider != nil {
+		go func(titleContent string) {
 			defer logging.RecoverPanic("agent.Run", func() {
 				logging.ErrorPersist("panic while generating title")
 			})
-			titleErr := a.generateTitle(context.Background(), sessionID, content)
+			titleErr := a.generateTitle(context.Background(), sessionID, titleContent)
 			if titleErr != nil {
 				logging.ErrorPersist(fmt.Sprintf("failed to generate title: %v", titleErr))
 			}
-		}()
+		}(content)
 	}
 	session, err := a.sessions.Get(ctx, sessionID)
 	if err != nil {
@@ -877,6 +877,11 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 		}
 		profilePrompt = profile.Prompt
 	}
+	return createConfiguredProvider(agentName, agentConfig, profilePrompt)
+}
+
+func createConfiguredProvider(agentName config.AgentName, agentConfig config.Agent, profilePrompt string) (provider.Provider, error) {
+	cfg := config.Get()
 	model, ok := models.SupportedModels[agentConfig.Model]
 	if !ok {
 		return nil, fmt.Errorf("model %s not supported", agentConfig.Model)
@@ -906,7 +911,7 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 				provider.WithReasoningEffort(agentConfig.ReasoningEffort),
 			),
 		)
-	} else if model.Provider == models.ProviderAnthropic && model.CanReason && agentName == config.AgentCoder {
+	} else if model.Provider == models.ProviderAnthropic && model.CanReason {
 		opts = append(
 			opts,
 			provider.WithAnthropicOptions(

@@ -46,7 +46,17 @@ func generateSchema() map[string]any {
 	}
 
 	properties := schema["properties"].(map[string]any)
-	properties["activeProfile"] = map[string]any{"type": "string", "default": "build", "description": "Built-in build/plan or a configured profile name."}
+	properties["activeProfile"] = map[string]any{"type": "string", "default": "build", "description": "Built-in build/plan/witch or a configured profile name."}
+	witchLanes := map[string]any{}
+	for _, lane := range config.WitchLanes() {
+		witchLanes[lane] = map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{
+			"model":     map[string]any{"type": "string", "description": "Configured model ID; omit to use the base chat model."},
+			"reasoning": map[string]any{"type": "string", "description": "A reasoning level supported by this role's model."},
+		}}
+	}
+	properties["witch"] = map[string]any{"type": "object", "additionalProperties": false, "description": "Global settings for the built-in Witch orchestrator.", "properties": map[string]any{
+		"lanes": map[string]any{"type": "object", "additionalProperties": false, "properties": witchLanes},
+	}}
 	properties["profiles"] = map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{
 		"description": map[string]any{"type": "string"}, "model": map[string]any{"type": "string"}, "reasoning": map[string]any{"type": "string"}, "prompt": map[string]any{"type": "string"}, "readOnly": map[string]any{"type": "boolean"}, "tools": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 	}}}

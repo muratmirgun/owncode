@@ -112,6 +112,7 @@ type appModel struct {
 	selectedSession session.Session
 
 	showPermissions bool
+	permissionID    string
 	permissions     dialog.PermissionDialogCmp
 
 	showHelp bool
@@ -140,8 +141,9 @@ type appModel struct {
 	commandDialog     dialog.CommandDialog
 	commands          []dialog.Command
 
-	showModelDialog bool
-	modelDialog     dialog.ModelDialog
+	showModelDialog  bool
+	witchModelTarget string
+	modelDialog      dialog.ModelDialog
 
 	showInitDialog bool
 	initDialog     dialog.InitDialogCmp
@@ -396,6 +398,14 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.app.Questions.Reply(msg.ID, msg.Answer)
 		return a, nil
 	case pubsub.Event[permission.PermissionRequest]:
+		if msg.Type == pubsub.DeletedEvent {
+			if a.permissionID == msg.Payload.ID {
+				a.showPermissions = false
+				a.permissionID = ""
+			}
+			return a, a.syncPermissionPanel()
+		}
+		a.permissionID = msg.Payload.ID
 		a.showPermissions = true
 		cmd := a.permissions.SetPermissions(msg.Payload)
 		return a, tea.Batch(cmd, a.syncPermissionPanel())
@@ -506,11 +516,20 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, util.CmdHandler(chat.SlashCommandMsg("connect"))
 
 	case dialog.CloseModelDialogMsg:
+		a.witchModelTarget = ""
 		a.showModelDialog = false
 		return a, nil
 
 	case dialog.ModelSelectedMsg:
 		a.showModelDialog = false
+		lane := a.witchModelTarget
+		a.witchModelTarget = ""
+		if active, _ := config.CurrentProfile(); lane == "" && active == "witch" {
+			lane = "controller"
+		}
+		if lane != "" {
+			return a.Update(witchLaneSelectedMsg{lane: lane, settings: config.WitchModel{Model: msg.Model.ID, Reasoning: msg.Model.ReasoningLevel("")}})
+		}
 
 		model, err := a.app.CoderAgent.Update(config.AgentCoder, msg.Model.ID)
 		if err != nil {
@@ -629,9 +648,13 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 	case chat.ToggleProfileMsg:
 		current, _ := config.CurrentProfile()
-		next := "plan"
-		if current == "plan" {
-			next = "build"
+		names := config.ProfileNames()
+		next := names[0]
+		for i, name := range names {
+			if name == current {
+				next = names[(i+1)%len(names)]
+				break
+			}
 		}
 		return a.Update(selectProfileMsg(next))
 	case selectProfileMsg:
@@ -642,7 +665,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err := config.SelectProfile(string(msg)); err != nil {
 			return a, util.ReportError(err)
 		}
-		if a.app.CoderAgent.Model().ID != "" {
+		if config.EffectiveCoder().Model != "" {
 			if err := a.app.CoderAgent.Reload(); err != nil {
 				_ = config.SelectProfile(previous)
 				return a, util.ReportError(err)
@@ -683,7 +706,58 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dialog.CloseSettingsMsg:
 		a.showSettings = false
 		return a, nil
+	case witchLaneSelectedMsg:
+		if a.app.CoderAgent.IsBusy() {
+			return a, util.ReportWarn("Wait for active work before changing Witch settings")
+		}
+		previous := config.WitchLaneSettings(msg.lane)
+		if err := config.UpdateWitchLane(msg.lane, msg.settings); err != nil {
+			return a, util.ReportError(err)
+		}
+		if active, _ := config.CurrentProfile(); active == "witch" && msg.lane == "controller" {
+			if err := a.app.CoderAgent.Reload(); err != nil {
+				_ = config.UpdateWitchLane(msg.lane, previous)
+				return a, util.ReportError(err)
+			}
+		}
+		return a, util.ReportInfo("Witch settings saved: " + msg.lane)
 	case dialog.SettingsActionMsg:
+		action, lane, isWitch := strings.Cut(string(msg), ":")
+		if isWitch && strings.HasPrefix(action, "witch-") {
+			if a.app.CoderAgent.IsBusy() {
+				return a, util.ReportWarn("Wait for active work before changing Witch settings")
+			}
+			switch action {
+			case "witch-model":
+				cmd := a.openModelDialog()
+				a.witchModelTarget = lane
+				selected, _ := config.WitchAgent(lane)
+				a.modelDialog.Update(dialog.ModelFocusMsg{ID: selected.Model, Title: "Witch · " + lane})
+				return a, cmd
+			case "witch-reset":
+				return a.Update(witchLaneSelectedMsg{lane: lane})
+			case "witch-reasoning":
+				selected, err := config.WitchAgent(lane)
+				if err != nil {
+					return a, util.ReportError(err)
+				}
+				levels := models.SupportedModels[selected.Model].ReasoningChoices()
+				if len(levels) == 0 {
+					return a, util.ReportInfo("This model has no reasoning choices")
+				}
+				commands := []dialog.Command{}
+				for _, level := range levels {
+					settings := config.WitchLaneSettings(lane)
+					settings.Reasoning = level
+					commands = append(commands, dialog.Command{ID: level, Title: level, Category: "Witch · " + lane, Handler: func(dialog.Command) tea.Cmd {
+						return util.CmdHandler(witchLaneSelectedMsg{lane: lane, settings: settings})
+					}})
+				}
+				a.commandDialog.SetCommands(commands)
+				a.showCommandDialog = true
+				return a, a.commandDialog.Init()
+			}
+		}
 		return a, util.CmdHandler(chat.SlashCommandMsg(msg))
 	case dialog.CommandSelectedMsg:
 		a.showCommandDialog = false
@@ -1212,6 +1286,26 @@ func (a appModel) cycleReasoning() tea.Cmd {
 	if a.app.CoderAgent.IsBusy() {
 		return util.ReportWarn("Wait for the current response before changing reasoning")
 	}
+	if active, _ := config.CurrentProfile(); active == "witch" {
+		agent, err := config.WitchAgent("controller")
+		if err != nil {
+			return util.ReportError(err)
+		}
+		choices := models.SupportedModels[agent.Model].ReasoningChoices()
+		if len(choices) == 0 {
+			return util.ReportInfo("This model has no reasoning choices")
+		}
+		next := choices[0]
+		for i, choice := range choices {
+			if choice == agent.ReasoningEffort {
+				next = choices[(i+1)%len(choices)]
+				break
+			}
+		}
+		selected := config.WitchLaneSettings("controller")
+		selected.Reasoning = next
+		return util.CmdHandler(witchLaneSelectedMsg{lane: "controller", settings: selected})
+	}
 	level, err := config.CycleReasoning()
 	if err != nil {
 		return util.ReportWarn(err.Error())
@@ -1329,5 +1423,10 @@ func NewWithSession(app *app.App, selected session.Session) tea.Model {
 
 // ExitSession returns the main conversation, even while viewing a child agent.
 func (a appModel) ExitSession() session.Session { return a.selectedSession }
+
+type witchLaneSelectedMsg struct {
+	lane     string
+	settings config.WitchModel
+}
 
 type selectProfileMsg string

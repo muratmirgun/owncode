@@ -13,6 +13,7 @@ import (
 	"github.com/muratmirgun/owncode/internal/logging"
 	"github.com/muratmirgun/owncode/internal/lsp"
 	"github.com/muratmirgun/owncode/internal/message"
+	"github.com/muratmirgun/owncode/internal/pubsub"
 	"github.com/muratmirgun/owncode/internal/session"
 )
 
@@ -25,7 +26,7 @@ type taskInbox struct {
 	closed  bool
 }
 
-// SteerTask queues a follow-up for the next turn of an active read-only worker.
+// SteerTask queues a follow-up for the next turn of an active worker.
 func SteerTask(id, prompt string) error {
 	if strings.TrimSpace(prompt) == "" || len(prompt) > 16000 {
 		return fmt.Errorf("follow-up must contain 1–16000 bytes")
@@ -59,10 +60,11 @@ func (b *taskInbox) next() string {
 }
 
 type agentTool struct {
-	costMu     sync.Mutex
-	sessions   session.Service
-	messages   message.Service
-	lspClients *lsp.Registry
+	costMu      sync.Mutex
+	sessions    session.Service
+	messages    message.Service
+	lspClients  *lsp.Registry
+	workerTools []tools.BaseTool
 }
 
 const (
@@ -70,18 +72,22 @@ const (
 )
 
 type AgentParams struct {
-	Prompt   string `json:"prompt"`
-	WorkerID string `json:"worker_id,omitempty"`
-	Role     string `json:"role,omitempty"`
+	Prompt     string      `json:"prompt"`
+	WorkerID   string      `json:"worker_id,omitempty"`
+	Role       string      `json:"role,omitempty"`
+	Route      *witchRoute `json:"route,omitempty"`
+	OwnedPaths []string    `json:"owned_paths,omitempty"`
 }
 
 func (b *agentTool) Info() tools.ToolInfo {
 	return tools.ToolInfo{
 		Name:        AgentToolName,
-		Description: "Delegate a focused task to a read-only explore/review worker. Multiple agent calls in one response run concurrently, up to three workers. The result includes a worker_id. Pass that ID with a new prompt to resume the same saved history, including after restart. Workers cannot edit files or run shell commands. The user can inspect, cancel, or queue follow-ups in /agents. Do not resume an active worker; the user can steer it through /agents.",
+		Description: "Delegate a focused task to an explore/review or writable implement worker. Witch mode uses only named witch-* roles. Multiple agent calls in one response run concurrently, up to three workers. The result includes a worker_id. Pass that ID with a new prompt to resume the same saved history, including after restart. Explore and review are read-only. Implement workers can edit and request shell approval. Declare disjoint owned_paths for writable workers. The user can inspect, cancel, or queue follow-ups in /agents. Do not resume an active worker; the user can steer it through /agents.",
 		Parameters: map[string]any{
-			"worker_id": map[string]any{"type": "string", "description": "Existing worker ID from this parent session; omit to start a worker."},
-			"role":      map[string]any{"type": "string", "enum": []string{"explore", "review"}, "description": "Read-only exploration or code review. Defaults to explore."},
+			"worker_id":   map[string]any{"type": "string", "description": "Existing worker ID from this parent session; omit to start a worker."},
+			"role":        map[string]any{"type": "string", "enum": workerRoles(), "description": "Worker role. Defaults to explore outside Witch. Fixed Witch roles select models from settings."},
+			"owned_paths": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Exact workspace files this worker may change. Required for writable roles."},
+			"route":       routeSchema(),
 			"prompt": map[string]any{
 				"type":        "string",
 				"description": "The task for the agent to perform",
@@ -100,22 +106,11 @@ func (b *agentTool) Run(ctx context.Context, call tools.ToolCall) (tools.ToolRes
 		return tools.NewTextErrorResponse("prompt is required"), nil
 	}
 
-	if params.Role == "" {
-		params.Role = "explore"
-	}
-	if params.Role != "explore" && params.Role != "review" {
-		return tools.NewTextErrorResponse("role must be explore or review"), nil
-	}
 	sessionID, messageID := tools.GetContextValues(ctx)
 	if sessionID == "" || messageID == "" {
 		return tools.ToolResponse{}, fmt.Errorf("session_id and message_id are required")
 	}
-
-	agent, err := NewAgent(config.AgentTask, b.sessions, b.messages, TaskAgentTools(b.lspClients))
-	if err != nil {
-		return tools.ToolResponse{}, fmt.Errorf("error creating agent: %s", err)
-	}
-
+	var err error
 	var child session.Session
 	if params.WorkerID != "" {
 		child, err = b.sessions.Get(ctx, params.WorkerID)
@@ -126,15 +121,66 @@ func (b *agentTool) Run(ctx context.Context, call tools.ToolCall) (tools.ToolRes
 		if err != nil {
 			return tools.ToolResponse{}, err
 		}
-		if !ownsWorker(history, child.ID) {
+		original, found := workerLaunch(history, child.ID)
+		if params.Role == "" {
+			params.Role = original.Role
+		}
+		if params.Role == "" {
+			params.Role = "explore"
+		}
+		if original.Role == "" {
+			original.Role = "explore"
+		}
+		if params.Role != original.Role {
+			return tools.NewTextErrorResponse("cannot change the role of a saved worker"), nil
+		}
+		params.OwnedPaths = original.OwnedPaths
+		params.Route = original.Route
+		if !found {
 			return tools.NewTextErrorResponse("worker has no active launch record in this session"), nil
 		}
 	} else {
+		if params.Role == "" {
+			params.Role = "explore"
+		}
+	}
+	if err := validateWorker(params); err != nil {
+		return tools.NewTextErrorResponse(err.Error()), nil
+	}
+	workerTools := TaskAgentTools(b.lspClients)
+	if writableRole(params.Role) {
+		workerTools = b.workerTools
+		if len(workerTools) == 0 {
+			return tools.NewTextErrorResponse("writable worker tools are unavailable"), nil
+		}
+	}
+	workerTools, err = scopeWorkerTools(workerTools, params)
+	if err != nil {
+		return tools.NewTextErrorResponse(err.Error()), nil
+	}
+	workerConfig := config.Get().Agents[config.AgentTask]
+	if strings.HasPrefix(params.Role, "witch-") {
+		workerConfig, err = config.WitchAgent(params.Role)
+		if err != nil {
+			return tools.NewTextErrorResponse(err.Error()), nil
+		}
+	}
+	workerProvider, err := createConfiguredProvider(config.AgentTask, workerConfig, workerInstructions(params.Role))
+	if err != nil {
+		return tools.ToolResponse{}, err
+	}
+	worker := &agent{Broker: pubsub.NewBroker[AgentEvent](), provider: workerProvider, sessions: b.sessions, messages: b.messages, tools: workerTools, allTools: workerTools, name: config.AgentTask}
+	if params.WorkerID == "" {
 		child, err = b.sessions.CreateTaskSession(ctx, call.ID, sessionID, params.Role+": "+params.Prompt)
 		if err != nil {
 			return tools.ToolResponse{}, fmt.Errorf("create worker: %w", err)
 		}
 	}
+	release, err := reserveWorkerPaths(params.OwnedPaths)
+	if err != nil {
+		return tools.NewTextErrorResponse(err.Error()), nil
+	}
+	defer release()
 	taskCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	if _, running := runningTasks.LoadOrStore(child.ID, cancel); running {
@@ -163,9 +209,12 @@ func (b *agentTool) Run(ctx context.Context, call tools.ToolCall) (tools.ToolRes
 		}
 	}()
 	prompt := taskPrompt(params)
+	if len(params.OwnedPaths) > 0 {
+		prompt = "Owned paths: " + strings.Join(params.OwnedPaths, ", ") + "\n\n" + prompt
+	}
 	var response message.Message
 	for {
-		done, err := agent.Run(taskCtx, child.ID, prompt)
+		done, err := worker.Run(taskCtx, child.ID, prompt)
 		if err != nil {
 			return tools.ToolResponse{}, fmt.Errorf("start worker: %w", err)
 		}
@@ -192,11 +241,13 @@ func NewAgentTool(
 	Sessions session.Service,
 	Messages message.Service,
 	LspClients *lsp.Registry,
+	workerTools ...tools.BaseTool,
 ) tools.BaseTool {
 	return &agentTool{
-		sessions:   Sessions,
-		messages:   Messages,
-		lspClients: LspClients,
+		sessions:    Sessions,
+		messages:    Messages,
+		lspClients:  LspClients,
+		workerTools: workerTools,
 	}
 }
 
@@ -240,4 +291,18 @@ func ownsWorker(history []message.Message, id string) bool {
 		}
 	}
 	return false
+}
+
+func workerLaunch(history []message.Message, id string) (AgentParams, bool) {
+	for _, msg := range history {
+		for _, call := range msg.ToolCalls() {
+			if call.Name == AgentToolName && call.ID == id {
+				var p AgentParams
+				if json.Unmarshal([]byte(call.Input), &p) == nil {
+					return p, true
+				}
+			}
+		}
+	}
+	return AgentParams{}, false
 }

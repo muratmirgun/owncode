@@ -192,7 +192,7 @@ func (p *patchTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error
 		case diff.ActionAdd:
 			dir := filepath.Dir(path)
 			patchDiff, _, _ := diff.GenerateDiff("", *change.NewContent, path)
-			p := p.permissions.Request(
+			p := permission.Request(ctx, p.permissions,
 				permission.CreatePermissionRequest{
 					SessionID:   sessionID,
 					Path:        dir,
@@ -219,7 +219,7 @@ func (p *patchTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error
 			}
 			patchDiff, _, _ := diff.GenerateDiff(currentContent, newContent, path)
 			dir := filepath.Dir(path)
-			p := p.permissions.Request(
+			p := permission.Request(ctx, p.permissions,
 				permission.CreatePermissionRequest{
 					SessionID:   sessionID,
 					Path:        dir,
@@ -238,7 +238,7 @@ func (p *patchTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error
 		case diff.ActionDelete:
 			dir := filepath.Dir(path)
 			patchDiff, _, _ := diff.GenerateDiff(*change.OldContent, "", path)
-			p := p.permissions.Request(
+			p := permission.Request(ctx, p.permissions,
 				permission.CreatePermissionRequest{
 					SessionID:   sessionID,
 					Path:        dir,
