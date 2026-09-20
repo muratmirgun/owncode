@@ -164,3 +164,37 @@ func TestJevTextChatWithNativeMetadataNeedsNoShake(t *testing.T) {
 	require.Empty(t, result.messages)
 	require.Contains(t, result.notice, "no tool text")
 }
+
+func TestJevCompactsReadOnlyAgentReports(t *testing.T) {
+	msgs := []message.Message{
+		{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "inspect repository"}}},
+		{Role: message.Assistant, Parts: []message.ContentPart{message.TextContent{Text: "I will inspect with an agent."}, message.ToolCall{ID: "task", Name: AgentToolName, Input: `{"prompt":"inspect"}`, Finished: true}}},
+		{Role: message.Tool, Parts: []message.ContentPart{message.ToolResult{ToolCallID: "task", Name: AgentToolName, Content: strings.Repeat("Completed read-only exploration report.\n", 2000)}}},
+	}
+	for range 4 {
+		msgs = append(msgs, message.Message{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "continue"}}})
+	}
+	result, err := compactWithJev(context.Background(), msgs, config.JevSettings{}, t.TempDir(), "inspect", lowLossScorer{})
+	require.NoError(t, err)
+	require.Len(t, result.messages, len(msgs))
+	require.Equal(t, msgs[1], result.messages[1])
+	require.Less(t, len(result.messages[2].ToolResults()[0].Content), len(msgs[2].ToolResults()[0].Content))
+}
+
+func TestJevAutomaticTargetAllowsUsefulPartialReduction(t *testing.T) {
+	msgs := []message.Message{
+		{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: strings.Repeat("Important instruction. ", 4000)}}},
+		{Role: message.Assistant, Parts: []message.ContentPart{message.ToolCall{ID: "read", Name: "view", Input: `{}`, Finished: true}}},
+		{Role: message.Tool, Parts: []message.ContentPart{message.ToolResult{ToolCallID: "read", Name: "view", Content: strings.Repeat("obsolete output\n", 600)}}},
+	}
+	for range 4 {
+		msgs = append(msgs, message.Message{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "continue"}}})
+	}
+	result, err := compactWithJev(context.Background(), msgs, config.JevSettings{}, t.TempDir(), "inspect", lowLossScorer{})
+	require.NoError(t, err)
+	require.Contains(t, result.notice, "partially compacted")
+	require.Equal(t, msgs[0], result.messages[0])
+	_, err = compactWithJev(context.Background(), msgs, config.JevSettings{TargetTokens: 10}, t.TempDir(), "inspect", lowLossScorer{})
+	require.ErrorContains(t, err, "protected")
+	require.ErrorContains(t, err, "context unchanged")
+}

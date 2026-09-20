@@ -28,7 +28,7 @@ require (
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6
 	github.com/muesli/reflow v0.3.0
 	github.com/muesli/termenv v0.16.0
-	github.com/muratmirgun/compact-engine v0.0.0-20260918200822-3d3f44b04a24
+	github.com/muratmirgun/compact-engine v0.0.0-20260920015040-ade31be21762
 	github.com/ncruces/go-sqlite3 v0.25.0
 	github.com/openai/openai-go v0.1.0-beta.2
 	github.com/pressly/goose/v3 v3.24.2
