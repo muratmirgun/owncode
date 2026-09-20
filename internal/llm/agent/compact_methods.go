@@ -217,7 +217,7 @@ func compactWithJev(ctx context.Context, msgs []message.Message, settings config
 		for _, call := range msg.ToolCalls() {
 			sideEffect := true
 			switch call.Name {
-			case "view", "ls", "glob", "grep":
+			case "view", "ls", "glob", "grep", AgentToolName:
 				sideEffect = false
 			}
 			item.ToolCalls = append(item.ToolCalls, engine.ToolCall{ID: call.ID, Name: call.Name, Arguments: json.RawMessage(call.Input), SideEffect: sideEffect})
@@ -266,6 +266,7 @@ func compactWithJev(ctx context.Context, msgs []message.Message, settings config
 	if err != nil {
 		return compactResult{}, err
 	}
+	allowPartial := settings.TargetTokens <= 0
 	target := settings.TargetTokens
 	if target <= 0 {
 		count, err := counter.Count(normalized)
@@ -277,15 +278,15 @@ func compactWithJev(ctx context.Context, msgs []message.Message, settings config
 	if focus == "" {
 		focus = "Continue the user's coding task. Preserve decisions, unresolved errors, constraints, and current work."
 	}
-	result, err := compressor.Compact(ctx, engine.Request{Messages: normalized, Goal: focus, TargetTokens: target})
+	result, err := compressor.Compact(ctx, engine.Request{Messages: normalized, Goal: focus, TargetTokens: target, AllowPartial: allowPartial})
 	if err != nil {
 		return compactResult{}, err
 	}
 	if !result.Applied && result.Status == "unchanged" && result.BudgetMet {
 		return compactResult{notice: "Jev · text context already fits the target; context unchanged"}, nil
 	}
-	if !result.Applied || !result.BudgetMet {
-		return compactResult{}, fmt.Errorf("jev: %s; context unchanged (%d tokens, target %d)", result.Status, result.Stats.OutputTokens, target)
+	if !result.Applied || (!result.BudgetMet && !allowPartial) {
+		return compactResult{}, fmt.Errorf("jev: %s: %s; context unchanged (input %d, protected %d, candidate %d, target %d tokens)", result.Status, strings.Join(result.Warnings, "; "), result.Stats.InputTokens, result.Stats.ProtectedTokens, result.Stats.CandidateOutputTokens, target)
 	}
 	output := make([]message.Message, 0, len(result.Messages))
 	for i, item := range result.Messages {
@@ -320,10 +321,16 @@ func compactWithJev(ctx context.Context, msgs []message.Message, settings config
 	if err != nil {
 		return compactResult{}, err
 	}
-	if outputTokens > target {
+	if outputTokens > target && !allowPartial {
 		return compactResult{}, fmt.Errorf("jev: archive paths exceed target budget; context unchanged (%d tokens, target %d)", outputTokens, target)
 	}
+	if outputTokens >= result.Stats.InputTokens {
+		return compactResult{notice: "Jev · no token savings after archive references; context unchanged"}, nil
+	}
 	result.Stats.OutputTokens = outputTokens
+	if outputTokens > target {
+		return compactResult{messages: output, tokens: int64(outputTokens), notice: fmt.Sprintf("Jev partially compacted · %d → %d text tokens · target %d; protected context preserved · archive %s", result.Stats.InputTokens, outputTokens, target, result.SnapshotID)}, nil
+	}
 	return compactResult{messages: output, tokens: int64(result.Stats.OutputTokens), notice: fmt.Sprintf("Jev compacted · %d → %d text tokens · archive %s", result.Stats.InputTokens, result.Stats.OutputTokens, result.SnapshotID)}, nil
 }
 
