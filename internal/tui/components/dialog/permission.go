@@ -52,11 +52,11 @@ type permissionsMapping struct {
 
 var permissionsKeys = permissionsMapping{
 	Left: key.NewBinding(
-		key.WithKeys("left"),
+		key.WithKeys("left", "up"),
 		key.WithHelp("←", "switch options"),
 	),
 	Right: key.NewBinding(
-		key.WithKeys("right"),
+		key.WithKeys("right", "down"),
 		key.WithHelp("→", "switch options"),
 	),
 	EnterSpace: key.NewBinding(
@@ -64,15 +64,15 @@ var permissionsKeys = permissionsMapping{
 		key.WithHelp("enter/space", "confirm"),
 	),
 	Allow: key.NewBinding(
-		key.WithKeys("a"),
+		key.WithKeys("a", "1"),
 		key.WithHelp("a", "allow"),
 	),
 	AllowSession: key.NewBinding(
-		key.WithKeys("s"),
+		key.WithKeys("s", "2"),
 		key.WithHelp("s", "allow for session"),
 	),
 	Deny: key.NewBinding(
-		key.WithKeys("d"),
+		key.WithKeys("d", "3"),
 		key.WithHelp("d", "deny"),
 	),
 	Tab: key.NewBinding(
@@ -157,21 +157,20 @@ func (p *permissionDialogCmp) selectCurrentOption() tea.Cmd {
 func (p *permissionDialogCmp) renderButtons() string {
 	t := theme.CurrentTheme()
 	base := styles.BaseStyle().Background(t.BackgroundSecondary())
-	labels := []string{"Allow [a]", "Session [s]", "Deny [d]"}
-	parts := make([]string, len(labels))
+	labels := []string{"Allow [a]", "Allow for session [s]", "Deny [d]"}
+	descriptions := []string{"Run this request once", "Allow matching requests for this session", "Reject this request"}
+	lines := make([]string, 0, 6)
 	for i, label := range labels {
-		style := base.Foreground(t.TextMuted())
+		marker := "  "
+		style := base.Foreground(t.Text())
 		if i == p.selectedOption {
+			marker = "› "
 			style = style.Foreground(t.Primary()).Bold(true)
-			label = "› " + label
 		}
-		parts[i] = style.Render(label)
+		lines = append(lines, style.Width(p.width).Render(ansi.Truncate(fmt.Sprintf("%s%d. %s", marker, i+1, label), p.width, "…")))
+		lines = append(lines, base.Foreground(t.TextMuted()).Width(p.width).Render(ansi.Truncate("     "+descriptions[i], p.width, "…")))
 	}
-	content := strings.Join(parts, base.Foreground(t.TextMuted()).Render("  /  "))
-	if lipgloss.Width(content) > p.width {
-		content = strings.Join(parts, "\n")
-	}
-	return content
+	return strings.Join(lines, "\n")
 }
 
 func (p *permissionDialogCmp) renderHeader() string {
@@ -312,7 +311,7 @@ func (p *permissionDialogCmp) render() string {
 	p.contentViewPort.SetWidth(max(1, p.width))
 	previewHeight := 2
 	if p.expanded {
-		previewHeight = max(2, p.height-4-lipgloss.Height(buttons))
+		previewHeight = max(4, p.height-5-lipgloss.Height(buttons))
 	}
 	p.contentViewPort.SetHeight(previewHeight)
 	// Render content based on tool type
@@ -332,7 +331,7 @@ func (p *permissionDialogCmp) render() string {
 		contentFinal = p.renderDefaultContent()
 	}
 
-	hint := base.Foreground(t.TextMuted()).Render("←/→ choose · enter confirm · v details · ↑/↓ scroll")
+	hint := base.Foreground(t.TextMuted()).Render("↑↓ select · enter submit · a/s/d · v details · pgup/pgdn scroll")
 	content := lipgloss.JoinVertical(lipgloss.Left, title, headerContent, contentFinal, buttons, hint)
 	panel := base.Width(p.width+3).Padding(0, 1).
 		Border(lipgloss.NormalBorder(), false, false, false, true).
@@ -360,6 +359,7 @@ func (p *permissionDialogCmp) SetSize() tea.Cmd {
 
 func (p *permissionDialogCmp) SetPermissions(permission permission.PermissionRequest) tea.Cmd {
 	p.permission = permission
+	p.selectedOption = 0
 	p.expanded = false
 	p.contentViewPort.GotoTop()
 	p.diffCache = make(map[string]string)
