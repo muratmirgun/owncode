@@ -198,3 +198,41 @@ func TestJevAutomaticTargetAllowsUsefulPartialReduction(t *testing.T) {
 	require.ErrorContains(t, err, "protected")
 	require.ErrorContains(t, err, "context unchanged")
 }
+
+func TestJevKeepScoringPreservesAttachmentsAndCalls(t *testing.T) {
+	t.Parallel()
+	image := message.BinaryContent{Data: []byte("image"), MIMEType: "image/png"}
+	msgs := []message.Message{
+		{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "inspect repository"}}},
+		{Role: message.Assistant, Parts: []message.ContentPart{message.TextContent{Text: "Inspection finished."}, message.ToolCall{ID: "old", Name: AgentToolName, Input: `{}`, Finished: true}}},
+		{Role: message.Tool, Parts: []message.ContentPart{message.ToolResult{ToolCallID: "old", Name: AgentToolName, Content: strings.Repeat("completed report\n", 2000)}, image}},
+	}
+	for range 4 {
+		msgs = append(msgs, message.Message{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "fix scrolling"}}})
+	}
+	scorer := engine.NewReplay(map[string]engine.Score{"m1": {Keep: &engine.KeepScore{Call: .1, Result: .3}}})
+	result, err := compactWithJev(t.Context(), msgs, config.JevSettings{}, t.TempDir(), "", scorer)
+	require.NoError(t, err)
+	require.Len(t, result.messages, len(msgs))
+	require.Equal(t, msgs[1], result.messages[1])
+	require.Equal(t, []message.BinaryContent{image}, result.messages[2].BinaryContent())
+	require.Contains(t, result.messages[2].ToolResults()[0].Content, "archived original:")
+	require.Less(t, len(result.messages[2].ToolResults()[0].Content), len(msgs[2].ToolResults()[0].Content))
+}
+
+func TestJevGoalUsesRecentUserRequests(t *testing.T) {
+	t.Parallel()
+	msgs := []message.Message{}
+	for _, text := range []string{"old request", "first", "second", "third"} {
+		msgs = append(msgs, message.Message{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: text}}})
+	}
+	msgs = append(msgs, message.Message{Role: message.Assistant, Parts: []message.ContentPart{message.TextContent{Text: "assistant text"}}})
+	goal := jevGoal(msgs, "")
+	require.Equal(t, "Continue these recent user requests (oldest first):\n\nfirst\n\nsecond\n\nthird", goal)
+	require.Equal(t, "explicit focus", jevGoal(msgs, "explicit focus"))
+	long := strings.Repeat("界", 10000)
+	msgs = []message.Message{{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: long}}}}
+	require.Less(t, len(jevGoal(msgs, "")), 16000)
+	require.Contains(t, jevGoal(msgs, ""), "[omitted middle]")
+	require.NotEmpty(t, jevGoal(nil, ""))
+}

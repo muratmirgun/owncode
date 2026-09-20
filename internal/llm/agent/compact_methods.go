@@ -198,7 +198,7 @@ func jevContext(ctx context.Context, msgs []message.Message, settings config.Jev
 	if strings.TrimSpace(settings.APIKey) == "" {
 		return compactResult{}, fmt.Errorf("jev requires compaction.jev.apiKey in your config")
 	}
-	client, err := jev.New(jev.Config{APIKey: settings.APIKey, Model: settings.Model})
+	client, err := jev.New(jev.Config{APIKey: settings.APIKey, Model: settings.Model, KeepScoring: true})
 	if err != nil {
 		return compactResult{}, err
 	}
@@ -275,9 +275,7 @@ func compactWithJev(ctx context.Context, msgs []message.Message, settings config
 		}
 		target = max(1, count*70/100)
 	}
-	if focus == "" {
-		focus = "Continue the user's coding task. Preserve decisions, unresolved errors, constraints, and current work."
-	}
+	focus = jevGoal(msgs, focus)
 	result, err := compressor.Compact(ctx, engine.Request{Messages: normalized, Goal: focus, TargetTokens: target, AllowPartial: allowPartial})
 	if err != nil {
 		return compactResult{}, err
@@ -345,6 +343,11 @@ func (s textOnlyJevScorer) Score(ctx context.Context, evaluation engine.Evaluati
 	}
 	result := maps.Clone(scores)
 	for id, score := range result {
+		if score.Keep != nil {
+			keep := *score.Keep
+			keep.Call = 1 // Keep call records and all non-text parts in the projection.
+			score.Keep = &keep
+		}
 		score.Loss = maps.Clone(score.Loss)
 		if _, ok := score.Loss["drop"]; ok {
 			score.Loss["drop"] = 1
@@ -352,4 +355,33 @@ func (s textOnlyJevScorer) Score(ctx context.Context, evaluation engine.Evaluati
 		result[id] = score
 	}
 	return result, nil
+}
+
+// jevGoal uses recent user requests, in order, unless a focus was supplied.
+func jevGoal(msgs []message.Message, focus string) string {
+	if strings.TrimSpace(focus) != "" {
+		return focus
+	}
+	prompts := make([]string, 0, 3)
+	for i := len(msgs) - 1; i >= 0 && len(prompts) < 3; i-- {
+		if msgs[i].Role != message.User {
+			continue
+		}
+		text := strings.TrimSpace(msgs[i].Content().Text)
+		if text == "" {
+			continue
+		}
+		runes := []rune(text)
+		if len(runes) > 1000 {
+			text = string(runes[:500]) + "\n[omitted middle]\n" + string(runes[len(runes)-500:])
+		}
+		prompts = append(prompts, text)
+	}
+	if len(prompts) == 0 {
+		return "Continue the user's coding task. Preserve decisions, unresolved errors, constraints, and current work."
+	}
+	for i, j := 0, len(prompts)-1; i < j; i, j = i+1, j-1 {
+		prompts[i], prompts[j] = prompts[j], prompts[i]
+	}
+	return "Continue these recent user requests (oldest first):\n\n" + strings.Join(prompts, "\n\n")
 }
