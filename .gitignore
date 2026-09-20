@@ -26,6 +26,8 @@ go.work
 !/docs/roadmap.md
 !/docs/witch.md
 !/docs/releasing.md
+!/docs/guide.md
+!/docs/assets/
 !/docs/licenses/
 # OS specific files
 .DS_Store
