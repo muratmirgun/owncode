@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
 	"github.com/muratmirgun/owncode/internal/app"
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/llm/agent"
@@ -15,6 +16,7 @@ import (
 	"github.com/muratmirgun/owncode/internal/logging"
 	"github.com/muratmirgun/owncode/internal/permission"
 	"github.com/muratmirgun/owncode/internal/pubsub"
+	"github.com/muratmirgun/owncode/internal/question"
 	"github.com/muratmirgun/owncode/internal/session"
 	"github.com/muratmirgun/owncode/internal/tui/components/chat"
 	"github.com/muratmirgun/owncode/internal/tui/components/core"
@@ -121,12 +123,18 @@ type appModel struct {
 	showSessionDialog bool
 	sessionDialog     dialog.SessionDialog
 
-	showAgents   bool
-	agents       util.Model
-	showSettings bool
-	showConnect  bool
-	connect      util.Model
-	settings     util.Model
+	showAgents    bool
+	agents        util.Model
+	question      util.Model
+	questionQueue []question.Request
+	showRecovery  bool
+	recovery      util.Model
+	showSkills    bool
+	skills        util.Model
+	showSettings  bool
+	showConnect   bool
+	connect       util.Model
+	settings      util.Model
 
 	showCommandDialog bool
 	commandDialog     dialog.CommandDialog
@@ -203,6 +211,24 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, next)
 		}
 		return a, tea.Batch(cmds...)
+	}
+	if a.question != nil && isInputMessage(msg) {
+		a.question, cmd = a.question.Update(msg)
+		return a, tea.Batch(cmd, a.syncPermissionPanel())
+	}
+	if a.showRecovery {
+		a.recovery, cmd = a.recovery.Update(msg)
+		cmds = append(cmds, cmd)
+		if isInputMessage(msg) {
+			return a, tea.Batch(cmds...)
+		}
+	}
+	if a.showSkills {
+		a.skills, cmd = a.skills.Update(msg)
+		cmds = append(cmds, cmd)
+		if isInputMessage(msg) {
+			return a, tea.Batch(cmds...)
+		}
 	}
 	if a.showConnect {
 		a.connect, cmd = a.connect.Update(msg)
@@ -348,6 +374,27 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.status = s.(core.StatusCmp)
 
 	// Permission
+	case pubsub.Event[question.Request]:
+		if msg.Type == pubsub.CreatedEvent {
+			a.questionQueue = append(a.questionQueue, msg.Payload)
+		} else {
+			for i, q := range a.questionQueue {
+				if q.ID == msg.Payload.ID {
+					a.questionQueue = append(a.questionQueue[:i], a.questionQueue[i+1:]...)
+					if i == 0 {
+						a.question = nil
+					}
+					break
+				}
+			}
+		}
+		if a.question == nil && len(a.questionQueue) > 0 {
+			a.question = dialog.NewQuestionCmp(a.questionQueue[0])
+		}
+		return a, a.syncPermissionPanel()
+	case dialog.QuestionReplyMsg:
+		a.app.Questions.Reply(msg.ID, msg.Answer)
+		return a, nil
 	case pubsub.Event[permission.PermissionRequest]:
 		a.showPermissions = true
 		cmd := a.permissions.SetPermissions(msg.Payload)
@@ -519,9 +566,29 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case chat.SlashCommandMsg:
 		switch string(msg) {
+		case "undo", "redo":
+			if a.app.CoderAgent.IsBusy() || a.app.Recovery == nil || a.selectedSession.ID == "" {
+				return a, util.ReportWarn("Select an idle saved session before recovery")
+			}
+			a.recovery = dialog.NewRecoveryCmp(a.app.Recovery, a.selectedSession.ID, string(msg))
+			a.recovery, _ = a.recovery.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+			a.showRecovery = true
+			return a, a.recovery.Init()
 		case "new":
 			a.selectedSession = session.Session{}
 			return a, util.CmdHandler(chat.SessionClearedMsg{})
+		case "profiles":
+			if a.app.CoderAgent.IsBusy() {
+				return a, util.ReportWarn("Wait for active work before changing profiles")
+			}
+			commands := []dialog.Command{}
+			for _, name := range config.ProfileNames() {
+				name := name
+				commands = append(commands, dialog.Command{ID: name, Title: name, Category: "Agent profiles", Handler: func(dialog.Command) tea.Cmd { return util.CmdHandler(selectProfileMsg(name)) }})
+			}
+			a.commandDialog.SetCommands(commands)
+			a.showCommandDialog = true
+			return a, a.commandDialog.Init()
 		case "models":
 			return a, a.openModelDialog()
 		case "themes":
@@ -532,6 +599,14 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var load tea.Cmd
 			a.agents, load = a.agents.Update(dialog.AgentParentMsg(a.selectedSession.ID))
 			return a, load
+		case "skills":
+			if a.app.CoderAgent.IsBusy() {
+				return a, util.ReportWarn("Wait for active work before managing skills")
+			}
+			a.skills = dialog.NewSkillsCmp(config.WorkingDirectory())
+			a.skills, _ = a.skills.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+			a.showSkills = true
+			return a, a.skills.Init()
 		case "settings":
 			a.showSettings = true
 		case "reasoning":
@@ -552,6 +627,56 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.showHelp = true
 		}
 		return a, nil
+	case chat.ToggleProfileMsg:
+		current, _ := config.CurrentProfile()
+		next := "plan"
+		if current == "plan" {
+			next = "build"
+		}
+		return a.Update(selectProfileMsg(next))
+	case selectProfileMsg:
+		if a.app.CoderAgent.IsBusy() {
+			return a, util.ReportWarn("Wait for active work")
+		}
+		previous, _ := config.CurrentProfile()
+		if err := config.SelectProfile(string(msg)); err != nil {
+			return a, util.ReportError(err)
+		}
+		if a.app.CoderAgent.Model().ID != "" {
+			if err := a.app.CoderAgent.Reload(); err != nil {
+				_ = config.SelectProfile(previous)
+				return a, util.ReportError(err)
+			}
+		}
+		return a, util.ReportInfo("Active profile: " + string(msg))
+	case dialog.CloseRecoveryMsg:
+		a.showRecovery = false
+		return a, nil
+	case dialog.RecoveryAppliedMsg:
+		a.showRecovery = false
+		saved, err := a.app.Sessions.Get(context.Background(), msg.Session)
+		if err != nil {
+			return a, util.ReportError(err)
+		}
+		a.selectedSession = saved
+		return a, tea.Sequence(util.CmdHandler(chat.SessionClearedMsg{}), util.CmdHandler(chat.SessionSelectedMsg(saved)))
+	case dialog.CloseSkillsMsg:
+		a.showSkills = false
+		return a, nil
+	case dialog.SkillsChangedMsg:
+		if a.app.CoderAgent.Model().ID != "" {
+			if err := a.app.CoderAgent.Reload(); err != nil {
+				return a, util.ReportError(err)
+			}
+		}
+		a.pages[page.ChatPage], cmd = a.pages[page.ChatPage].Update(msg)
+		return a, cmd
+	case dialog.SkillUseMsg:
+		a.showSkills = false
+		return a, util.CmdHandler(chat.InsertTextMsg(msg.Content + "\n\nTask: "))
+	case dialog.WorkerFollowupMsg:
+		a.showAgents = false
+		return a, util.CmdHandler(chat.InsertTextMsg(string(msg)))
 	case dialog.CloseAgentsMsg:
 		a.showAgents = false
 		return a, nil
@@ -843,7 +968,14 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // syncPermissionPanel keeps the approval UI in the chat layout.
 func (a *appModel) syncPermissionPanel() tea.Cmd {
 	view := ""
-	if a.showPermissions {
+	if a.question != nil {
+		width := a.width
+		if p, ok := a.pages[page.ChatPage].(interface{ PermissionWidth() int }); ok {
+			width = p.PermissionWidth()
+		}
+		a.question, _ = a.question.Update(tea.WindowSizeMsg{Width: width, Height: a.height})
+		view = a.question.View()
+	} else if a.showPermissions {
 		width := a.width
 		if page, ok := a.pages[page.ChatPage].(interface{ PermissionWidth() int }); ok {
 			width = page.PermissionWidth()
@@ -909,6 +1041,14 @@ func (a appModel) render() string {
 		appView = layout.PlaceOverlay(max(0, (a.width-lipgloss.Width(view))/2), max(0, (a.height-lipgloss.Height(view))/2), view, appView, false)
 	}
 
+	if a.showRecovery {
+		view := a.recovery.View()
+		appView = layout.PlaceOverlay(max(0, (a.width-lipgloss.Width(view))/2), max(0, (a.height-lipgloss.Height(view))/2), view, appView, false)
+	}
+	if a.showSkills {
+		view := a.skills.View()
+		appView = layout.PlaceOverlay(max(0, (a.width-lipgloss.Width(view))/2), max(0, (a.height-lipgloss.Height(view))/2), view, appView, false)
+	}
 	if a.showAgents {
 		view := a.agents.View()
 		appView = layout.PlaceOverlay(max(0, (a.width-lipgloss.Width(view))/2), max(0, (a.height-lipgloss.Height(view))/2), view, appView, false)
@@ -1189,3 +1329,5 @@ func NewWithSession(app *app.App, selected session.Session) tea.Model {
 
 // ExitSession returns the main conversation, even while viewing a child agent.
 func (a appModel) ExitSession() session.Session { return a.selectedSession }
+
+type selectProfileMsg string

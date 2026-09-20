@@ -8,6 +8,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/spf13/cobra"
+
 	"github.com/muratmirgun/owncode/internal/app"
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/db"
@@ -18,7 +20,6 @@ import (
 	"github.com/muratmirgun/owncode/internal/session"
 	"github.com/muratmirgun/owncode/internal/tui"
 	"github.com/muratmirgun/owncode/internal/version"
-	"github.com/spf13/cobra"
 )
 
 var rootCmd = &cobra.Command{
@@ -284,6 +285,9 @@ func setupSubscriptions(app *app.App, parentCtx context.Context) (chan tea.Msg, 
 		forwardMessageBatches(ctx, app.Messages.Subscribe(ctx), ch)
 	}()
 	setupSubscriber(ctx, &wg, "permissions", app.Permissions.Subscribe, ch)
+	if app.Questions != nil {
+		setupSubscriber(ctx, &wg, "questions", app.Questions.Subscribe, ch)
+	}
 	setupSubscriber(ctx, &wg, "coderAgent", app.CoderAgent.Subscribe, ch)
 
 	cleanupFunc := func() {

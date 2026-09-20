@@ -9,6 +9,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/diff"
 	"github.com/muratmirgun/owncode/internal/llm/agent"
@@ -196,7 +197,7 @@ func renderAssistantMessage(
 		toolCallContent := renderToolMessage(
 			toolCall,
 			allMessages,
-			taskHistory[toolCall.ID],
+			taskHistory[agent.TaskID(toolCall)],
 			focusedUIMessageId,
 			false,
 			width,
@@ -645,7 +646,7 @@ func renderAgentCard(call message.ToolCall, history []message.Message, children 
 		role = "explore"
 	}
 	state := "Queued"
-	if agent.IsTaskRunning(call.ID) {
+	if agent.IsTaskRunning(agent.TaskID(call)) {
 		state = "Working"
 	}
 	result := findToolResponse(call.ID, history)
@@ -680,7 +681,7 @@ func renderAgentCard(call message.ToolCall, history []message.Message, children 
 	hint := base.Foreground(t.TextMuted()).Render(line(state + " · click to open"))
 	content := base.Width(max(1, width)).Padding(0, 1).Border(lipgloss.ThickBorder(), false, false, false, true).BorderForeground(t.Primary()).Render(strings.Join([]string{title, activity, hint}, "\n"))
 	content = styles.Surface(content, t.BackgroundSecondary())
-	return uiMessage{ID: call.ID, taskID: call.ID, messageType: toolMessageType, position: position, height: lipgloss.Height(content), content: content}
+	return uiMessage{ID: call.ID, taskID: agent.TaskID(call), messageType: toolMessageType, position: position, height: lipgloss.Height(content), content: content}
 }
 
 // Helper function to format the time difference between two Unix timestamps

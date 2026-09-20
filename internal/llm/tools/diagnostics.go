@@ -17,7 +17,7 @@ type DiagnosticsParams struct {
 	FilePath string `json:"file_path"`
 }
 type diagnosticsTool struct {
-	lspClients map[string]*lsp.Client
+	lspClients *lsp.Registry
 }
 
 const (
@@ -45,7 +45,7 @@ TIPS:
 `
 )
 
-func NewDiagnosticsTool(lspClients map[string]*lsp.Client) BaseTool {
+func NewDiagnosticsTool(lspClients *lsp.Registry) BaseTool {
 	return &diagnosticsTool{
 		lspClients,
 	}
@@ -71,7 +71,7 @@ func (b *diagnosticsTool) Run(ctx context.Context, call ToolCall) (ToolResponse,
 		return NewTextErrorResponse(fmt.Sprintf("error parsing parameters: %s", err)), nil
 	}
 
-	lsps := b.lspClients
+	lsps := b.lspClients.Snapshot()
 
 	if len(lsps) == 0 {
 		return NewTextErrorResponse("no LSP clients available"), nil

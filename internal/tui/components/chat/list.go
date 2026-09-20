@@ -3,7 +3,6 @@ package chat
 import (
 	"context"
 	"fmt"
-	"github.com/charmbracelet/x/ansi"
 	"math"
 	"strings"
 	"time"
@@ -13,6 +12,8 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/muratmirgun/owncode/internal/app"
 	"github.com/muratmirgun/owncode/internal/llm/agent"
 	"github.com/muratmirgun/owncode/internal/message"
@@ -235,9 +236,9 @@ func (m *messagesCmp) Update(msg tea.Msg) (model util.Model, command tea.Cmd) {
 		if msg.Payload.SessionID != m.session.ID {
 			for _, parent := range m.messages {
 				for _, call := range parent.ToolCalls() {
-					if call.Name == agent.AgentToolName && call.ID == msg.Payload.SessionID {
+					if call.Name == agent.AgentToolName && agent.TaskID(call) == msg.Payload.SessionID {
 						if msg.Payload.Role == message.Assistant {
-							m.taskHistory[call.ID] = []message.Message{msg.Payload}
+							m.taskHistory[agent.TaskID(call)] = []message.Message{msg.Payload}
 						}
 						delete(m.cachedContent, parent.ID)
 						needsRerender = true
@@ -358,16 +359,16 @@ func (m *messagesCmp) renderView() {
 				if call.Name != agent.AgentToolName {
 					continue
 				}
-				if _, loaded := m.taskHistory[call.ID]; loaded {
+				if _, loaded := m.taskHistory[agent.TaskID(call)]; loaded {
 					continue
 				}
-				m.taskHistory[call.ID] = nil
+				m.taskHistory[agent.TaskID(call)] = nil
 				if m.app.Messages != nil {
-					history, err := m.app.Messages.List(context.Background(), call.ID)
+					history, err := m.app.Messages.List(context.Background(), agent.TaskID(call))
 					if err == nil {
 						for _, child := range history {
 							if child.Role == message.Assistant {
-								m.taskHistory[call.ID] = []message.Message{child}
+								m.taskHistory[agent.TaskID(call)] = []message.Message{child}
 							}
 						}
 					}

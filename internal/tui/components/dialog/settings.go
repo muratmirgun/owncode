@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/llm/models"
 	"github.com/muratmirgun/owncode/internal/tui/styles"
@@ -48,13 +49,14 @@ func (s *settingsCmp) rows() []settingRow {
 			{"Layout", "Welcome screen", "Centered", "A new chat opens without a sidebar. Active chats show the sidebar. Read-only.", ""},
 		}
 	case 1:
-		agent := cfg.Agents[config.AgentCoder]
+		agent := config.EffectiveCoder()
 		model := models.SupportedModels[agent.Model]
 		name := model.Name
 		if name == "" {
 			name = "Not configured"
 		}
 		rows = []settingRow{
+			{"Selection", "Agent profile", func() string { name, _ := config.CurrentProfile(); return name }(), "Build can edit; Plan uses read-only tools. Custom profiles come from config.", "profiles"},
 			{"Selection", "Chat model", name, "Select a configured model for the coding agent.", "models"},
 			{"Generation", "Reasoning", reasoningLabel(model, agent.ReasoningEffort), "Enter or Alt+R cycles the supported levels. The change applies to new requests.", "reasoning"},
 			{"Limits", "Output limit", fmt.Sprintf("%d tokens", agent.MaxTokens), "Configured maximum output per response. Edit the config to change this value.", ""},
@@ -66,7 +68,7 @@ func (s *settingsCmp) rows() []settingRow {
 			jevStatus = "Configured"
 		}
 		rows = []settingRow{
-			{"Compaction", "Method", cfg.Compaction.EffectiveMethod(), "Summary / shake / snapcompact / jev / native. Jev requires a config key; native requires provider support.", "compact-method"},
+			{"Compaction", "Method", cfg.Compaction.EffectiveMethod(), "Enter cycles eligible methods. Capability rows below explain unavailable methods.", "compact-method"},
 			{"Compaction", "Jev key", jevStatus, "Set compaction.jev.apiKey in ~/.owncode.json. The key is never displayed here.", ""},
 			{"Compaction", "Summary mode", cfg.Compaction.EffectiveMode(), "Balanced: coding context. Brief: essentials. Handoff: structured continuation notes.", "compact-mode"},
 			{"Compaction", "Keep in summary", cfg.Compaction.Focus, "Optional focus: paths, decisions, tests, or details to preserve. Enter to edit.", "compact-focus"},
@@ -74,6 +76,14 @@ func (s *settingsCmp) rows() []settingRow {
 			{"Compaction", "Trigger at", fmt.Sprintf("%d%%", cfg.Compaction.EffectiveThreshold()), "Percentage of the model context window. Enter cycles 70 / 80 / 90 / 95.", "compact-threshold"},
 			{"Workspace", "Directory", cfg.WorkingDir, "Current project directory. Read-only.", ""},
 			{"Storage", "Data directory", cfg.Data.Directory, "Session storage location. Read-only.", ""},
+		}
+		for _, method := range []string{"summary", "shake", "snapcompact", "jev", "native"} {
+			value, description := "Available", "Adapter eligible. Remote model support and history compatibility still apply."
+			if reason := config.CompactionUnavailable(method); reason != "" {
+				value = "Unavailable"
+				description = reason
+			}
+			rows = append(rows, settingRow{"Capabilities", method, value, description, ""})
 		}
 	case 3:
 		rows = append(rows, settingRow{"Providers", "Connect provider", "OpenAI / Claude", "Sign in with ChatGPT or add an Anthropic API key.", "connect"})
@@ -271,7 +281,13 @@ func (s *settingsCmp) changeCompaction(action string) tea.Cmd {
 		methods := []string{"summary", "shake", "snapcompact", "jev", "native"}
 		for i, method := range methods {
 			if method == settings.EffectiveMethod() {
-				settings.Method = methods[(i+1)%len(methods)]
+				for offset := 1; offset <= len(methods); offset++ {
+					candidate := methods[(i+offset)%len(methods)]
+					if config.CompactionUnavailable(candidate) == "" {
+						settings.Method = candidate
+						break
+					}
+				}
 				break
 			}
 		}

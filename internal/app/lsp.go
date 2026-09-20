@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/muratmirgun/owncode/internal/config"
@@ -13,10 +14,15 @@ import (
 func (app *App) initLSPClients(ctx context.Context) {
 	cfg := config.Get()
 
-	// Initialize LSP clients
+	// Finish all initializations before shutdown starts waiting for watchers.
+	var pending sync.WaitGroup
+	defer pending.Wait()
 	for name, clientConfig := range cfg.LSP {
+		if clientConfig.Disabled {
+			continue
+		}
 		// Start each client initialization in its own goroutine
-		go app.createAndStartLSPClient(ctx, name, clientConfig.Command, clientConfig.Args...)
+		pending.Go(func() { app.createAndStartLSPClient(ctx, name, clientConfig.Command, clientConfig.Args...) })
 	}
 	logging.Info("LSP clients initialization started in background")
 }
@@ -76,9 +82,7 @@ func (app *App) createAndStartLSPClient(ctx context.Context, name string, comman
 	app.watcherWG.Add(1)
 
 	// Add to map with mutex protection before starting goroutine
-	app.clientsMutex.Lock()
-	app.LSPClients[name] = lspClient
-	app.clientsMutex.Unlock()
+	app.LSPClients.Store(name, lspClient)
 
 	go app.runWorkspaceWatcher(watchCtx, name, workspaceWatcher)
 }
@@ -106,14 +110,9 @@ func (app *App) restartLSPClient(ctx context.Context, name string) {
 	}
 
 	// Clean up the old client if it exists
-	app.clientsMutex.Lock()
-	oldClient, exists := app.LSPClients[name]
-	if exists {
-		delete(app.LSPClients, name) // Remove from map before potentially slow shutdown
-	}
-	app.clientsMutex.Unlock()
+	oldClient := app.LSPClients.Remove(name)
 
-	if exists && oldClient != nil {
+	if oldClient != nil {
 		// Try to shut it down gracefully, but don't block on errors
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_ = oldClient.Shutdown(shutdownCtx)

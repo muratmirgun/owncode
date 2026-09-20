@@ -22,7 +22,8 @@ go.work
 .vscode/
 *.swp
 *.swo
-/docs/
+/docs/*
+!/docs/roadmap.md
 # OS specific files
 .DS_Store
 .DS_Store?

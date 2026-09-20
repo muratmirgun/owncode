@@ -10,9 +10,11 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/spf13/viper"
+
+	"github.com/muratmirgun/owncode/internal/extension"
 	"github.com/muratmirgun/owncode/internal/llm/models"
 	"github.com/muratmirgun/owncode/internal/logging"
-	"github.com/spf13/viper"
 )
 
 // MCPType defines the type of MCP (Model Control Protocol) server.
@@ -85,19 +87,22 @@ type ShellConfig struct {
 
 // Config is the main configuration structure for the application.
 type Config struct {
-	Data         Data                              `json:"data"`
-	WorkingDir   string                            `json:"wd,omitempty"`
-	MCPServers   map[string]MCPServer              `json:"mcpServers,omitempty"`
-	Providers    map[models.ModelProvider]Provider `json:"providers,omitempty"`
-	LSP          map[string]LSPConfig              `json:"lsp,omitempty"`
-	Agents       map[AgentName]Agent               `json:"agents,omitempty"`
-	Debug        bool                              `json:"debug,omitempty"`
-	DebugLSP     bool                              `json:"debugLSP,omitempty"`
-	ContextPaths []string                          `json:"contextPaths,omitempty"`
-	TUI          TUIConfig                         `json:"tui"`
-	Shell        ShellConfig                       `json:"shell,omitempty"`
-	Compaction   CompactionSettings                `json:"compaction,omitempty"`
-	AutoCompact  bool                              `json:"autoCompact"`
+	Extensions    map[string]extension.Config       `json:"extensions,omitempty"`
+	Profiles      map[string]Profile                `json:"profiles,omitempty"`
+	ActiveProfile string                            `json:"activeProfile,omitempty"`
+	Data          Data                              `json:"data"`
+	WorkingDir    string                            `json:"wd,omitempty"`
+	MCPServers    map[string]MCPServer              `json:"mcpServers,omitempty"`
+	Providers     map[models.ModelProvider]Provider `json:"providers,omitempty"`
+	LSP           map[string]LSPConfig              `json:"lsp,omitempty"`
+	Agents        map[AgentName]Agent               `json:"agents,omitempty"`
+	Debug         bool                              `json:"debug,omitempty"`
+	DebugLSP      bool                              `json:"debugLSP,omitempty"`
+	ContextPaths  []string                          `json:"contextPaths,omitempty"`
+	TUI           TUIConfig                         `json:"tui"`
+	Shell         ShellConfig                       `json:"shell,omitempty"`
+	Compaction    CompactionSettings                `json:"compaction,omitempty"`
+	AutoCompact   bool                              `json:"autoCompact"`
 }
 
 // Application constants
@@ -475,7 +480,9 @@ func mergeLocalConfig(workingDir string) error {
 			}
 			return fmt.Errorf("read %s.json: %w", name, err)
 		}
-		if err := viper.MergeConfigMap(local.AllSettings()); err != nil {
+		settings := local.AllSettings()
+		delete(settings, "extensions") // Only global config can enable executable hooks.
+		if err := viper.MergeConfigMap(settings); err != nil {
 			return fmt.Errorf("merge %s.json: %w", name, err)
 		}
 	}

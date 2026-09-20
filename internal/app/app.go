@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"maps"
 	"sync"
 	"time"
 
@@ -14,15 +13,20 @@ import (
 	"github.com/muratmirgun/owncode/internal/format"
 	"github.com/muratmirgun/owncode/internal/history"
 	"github.com/muratmirgun/owncode/internal/llm/agent"
+	"github.com/muratmirgun/owncode/internal/llm/tools"
 	"github.com/muratmirgun/owncode/internal/logging"
 	"github.com/muratmirgun/owncode/internal/lsp"
 	"github.com/muratmirgun/owncode/internal/message"
 	"github.com/muratmirgun/owncode/internal/permission"
+	"github.com/muratmirgun/owncode/internal/question"
+	"github.com/muratmirgun/owncode/internal/recovery"
 	"github.com/muratmirgun/owncode/internal/session"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
 )
 
 type App struct {
+	Questions   *question.Service
+	Recovery    *recovery.Service
 	Sessions    session.Service
 	Messages    message.Service
 	History     history.Service
@@ -30,10 +34,10 @@ type App struct {
 
 	CoderAgent agent.Service
 
-	LSPClients map[string]*lsp.Client
+	LSPClients *lsp.Registry
 
-	clientsMutex sync.RWMutex
-
+	lspCancel          context.CancelFunc
+	lspInitWG          sync.WaitGroup
 	watcherCancelFuncs []context.CancelFunc
 	cancelFuncsMutex   sync.Mutex
 	watcherWG          sync.WaitGroup
@@ -50,14 +54,18 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 		Messages:    messages,
 		History:     files,
 		Permissions: permission.NewPermissionService(),
-		LSPClients:  make(map[string]*lsp.Client),
+		Questions:   question.New(),
+		LSPClients:  &lsp.Registry{},
 	}
 
 	// Initialize theme based on configuration
 	app.initTheme()
 
 	// Initialize LSP clients in the background
-	go app.initLSPClients(ctx)
+	lspCtx, cancelLSP := context.WithCancel(ctx)
+	app.lspCancel = cancelLSP
+	app.lspInitWG.Add(1)
+	go func() { defer app.lspInitWG.Done(); app.initLSPClients(lspCtx) }()
 
 	var err error
 	app.CoderAgent, err = agent.NewAgent(
@@ -70,13 +78,20 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 			app.Messages,
 			app.History,
 			app.LSPClients,
+			tools.NewAskTool(app.Questions),
 		),
 	)
 	if err != nil {
+		cancelLSP()
+		app.Shutdown()
 		logging.Error("Failed to create coder agent", err)
 		return nil, err
 	}
 
+	app.Recovery = recovery.New(conn, config.WorkingDirectory())
+	if primary, ok := app.CoderAgent.(interface{ SetRecovery(*recovery.Service) }); ok {
+		primary.SetRecovery(app.Recovery)
+	}
 	return app, nil
 }
 
@@ -166,6 +181,10 @@ func (a *App) RunNonInteractive(ctx context.Context, prompt string, outputFormat
 
 // Shutdown performs a clean shutdown of the application
 func (app *App) Shutdown() {
+	if app.lspCancel != nil {
+		app.lspCancel()
+	}
+	app.lspInitWG.Wait()
 	if storage, ok := app.Messages.(interface{ Close(context.Context) error }); ok {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if err := storage.Close(ctx); err != nil {
@@ -183,10 +202,7 @@ func (app *App) Shutdown() {
 	app.watcherWG.Wait()
 
 	// Perform additional cleanup for LSP clients
-	app.clientsMutex.RLock()
-	clients := make(map[string]*lsp.Client, len(app.LSPClients))
-	maps.Copy(clients, app.LSPClients)
-	app.clientsMutex.RUnlock()
+	clients := app.LSPClients.Snapshot()
 
 	for name, client := range clients {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

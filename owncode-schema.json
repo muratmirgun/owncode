@@ -115,6 +115,11 @@
   },
   "description": "Configuration schema for the OwnCode application",
   "properties": {
+    "activeProfile": {
+      "default": "build",
+      "description": "Built-in build/plan or a configured profile name.",
+      "type": "string"
+    },
     "agents": {
       "additionalProperties": {
         "description": "Agent configuration",
@@ -346,6 +351,31 @@
       "description": "Enable LSP debug mode",
       "type": "boolean"
     },
+    "extensions": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "description": "Absolute executable path, followed by arguments.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "enabled": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "type": "object"
+      },
+      "description": "Trusted metadata hooks. Only global configuration can enable them.",
+      "type": "object"
+    },
     "lsp": {
       "additionalProperties": {
         "description": "LSP configuration for a language",
@@ -428,6 +458,36 @@
         "type": "object"
       },
       "description": "Model Control Protocol server configurations",
+      "type": "object"
+    },
+    "profiles": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "readOnly": {
+            "type": "boolean"
+          },
+          "reasoning": {
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "type": "object"
     },
     "providers": {
