@@ -2,36 +2,37 @@ name: build
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
-    branches:
-      - main
+    branches: [main]
 
-concurrency: ${{ github.workflow }}-${{ github.ref }}
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
+
+env:
+  GOSUMDB: sum.golang.org
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
-
-      - run: git fetch --force --tags
-
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
           cache: true
-          cache-dependency-path: go.sum
-
-      - run: go mod download
-
+      - name: Verify
+        run: |
+          go test ./...
+          go vet ./...
+          python3 scripts/test-install.py
       - uses: goreleaser/goreleaser-action@v6
         with:
-          distribution: goreleaser
-          version: latest
+          version: v2.17.0
           args: build --snapshot --clean
