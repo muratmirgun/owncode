@@ -25,6 +25,7 @@ type compactResult struct {
 	tokens   int64
 	notice   string
 	usage    provider.TokenUsage
+	fallback bool
 }
 
 func (a *agent) compactContext(ctx context.Context, msgs []message.Message, opts CompactOptions) (compactResult, error) {
@@ -217,8 +218,13 @@ func compactWithJev(ctx context.Context, msgs []message.Message, settings config
 		for _, call := range msg.ToolCalls() {
 			sideEffect := true
 			switch call.Name {
-			case "view", "ls", "glob", "grep", AgentToolName:
+			case "view", "ls", "glob", "grep":
 				sideEffect = false
+			case AgentToolName:
+				var params AgentParams
+				if json.Unmarshal([]byte(call.Input), &params) == nil && params.WorkerID == "" {
+					sideEffect = params.Role != "" && params.Role != "explore" && params.Role != "review"
+				}
 			}
 			item.ToolCalls = append(item.ToolCalls, engine.ToolCall{ID: call.ID, Name: call.Name, Arguments: json.RawMessage(call.Input), SideEffect: sideEffect})
 		}
@@ -276,7 +282,7 @@ func compactWithJev(ctx context.Context, msgs []message.Message, settings config
 		target = max(1, count*70/100)
 	}
 	focus = jevGoal(msgs, focus)
-	result, err := compressor.Compact(ctx, engine.Request{Messages: normalized, Goal: focus, TargetTokens: target, AllowPartial: allowPartial})
+	result, err := compressor.Compact(ctx, engine.Request{Messages: normalized, Goal: focus, TargetTokens: target, AllowPartial: allowPartial, ReduceResultsIndividually: true})
 	if err != nil {
 		return compactResult{}, err
 	}
@@ -284,7 +290,7 @@ func compactWithJev(ctx context.Context, msgs []message.Message, settings config
 		return compactResult{notice: "Jev · text context already fits the target; context unchanged"}, nil
 	}
 	if !result.Applied || (!result.BudgetMet && !allowPartial) {
-		return compactResult{}, fmt.Errorf("jev: %s: %s; context unchanged (input %d, protected %d, candidate %d, target %d tokens)", result.Status, strings.Join(result.Warnings, "; "), result.Stats.InputTokens, result.Stats.ProtectedTokens, result.Stats.CandidateOutputTokens, target)
+		return compactResult{fallback: true}, fmt.Errorf("jev: %s: %s; context unchanged (input %d, protected %d, candidate %d, target %d tokens)", result.Status, strings.Join(result.Warnings, "; "), result.Stats.InputTokens, result.Stats.ProtectedTokens, result.Stats.CandidateOutputTokens, target)
 	}
 	output := make([]message.Message, 0, len(result.Messages))
 	for i, item := range result.Messages {
@@ -323,13 +329,15 @@ func compactWithJev(ctx context.Context, msgs []message.Message, settings config
 		return compactResult{}, fmt.Errorf("jev: archive paths exceed target budget; context unchanged (%d tokens, target %d)", outputTokens, target)
 	}
 	if outputTokens >= result.Stats.InputTokens {
-		return compactResult{notice: "Jev · no token savings after archive references; context unchanged"}, nil
+		return compactResult{fallback: true, notice: "Jev · no token savings after archive references; context unchanged"}, nil
 	}
 	result.Stats.OutputTokens = outputTokens
+	diagnostics := fmt.Sprintf(" · %d shortened, %d protected, %d rejected · %d requests · %.0f ms", result.Stats.ReducedGroups, result.Stats.ProtectedGroups, result.Stats.RejectedGroups, result.Stats.Scoring.Requests, result.Stats.ScoringMillis)
+	fallback := float64(outputTokens) > float64(result.Stats.InputTokens)*0.75
 	if outputTokens > target {
-		return compactResult{messages: output, tokens: int64(outputTokens), notice: fmt.Sprintf("Jev partially compacted · %d → %d text tokens · target %d; protected context preserved · archive %s", result.Stats.InputTokens, outputTokens, target, result.SnapshotID)}, nil
+		return compactResult{fallback: fallback, messages: output, tokens: int64(outputTokens), notice: fmt.Sprintf("Jev partially compacted · %d → %d text tokens · target %d; protected context preserved · archive %s", result.Stats.InputTokens, outputTokens, target, result.SnapshotID) + diagnostics}, nil
 	}
-	return compactResult{messages: output, tokens: int64(result.Stats.OutputTokens), notice: fmt.Sprintf("Jev compacted · %d → %d text tokens · archive %s", result.Stats.InputTokens, result.Stats.OutputTokens, result.SnapshotID)}, nil
+	return compactResult{fallback: fallback, messages: output, tokens: int64(result.Stats.OutputTokens), notice: fmt.Sprintf("Jev compacted · %d → %d text tokens · archive %s", result.Stats.InputTokens, result.Stats.OutputTokens, result.SnapshotID) + diagnostics}, nil
 }
 
 // textOnlyJevScorer prevents whole-message removal, which would also discard
@@ -337,9 +345,21 @@ func compactWithJev(ctx context.Context, msgs []message.Message, settings config
 type textOnlyJevScorer struct{ engine.Scorer }
 
 func (s textOnlyJevScorer) Score(ctx context.Context, evaluation engine.Evaluation) (map[string]engine.Score, error) {
-	scores, err := s.Scorer.Score(ctx, evaluation)
+	scores, _, err := s.ScoreWithStats(ctx, evaluation)
+	return scores, err
+}
+
+func (s textOnlyJevScorer) ScoreWithStats(ctx context.Context, evaluation engine.Evaluation) (map[string]engine.Score, engine.ScoringStats, error) {
+	var stats engine.ScoringStats
+	var scores map[string]engine.Score
+	var err error
+	if diagnostic, ok := s.Scorer.(engine.DiagnosticScorer); ok {
+		scores, stats, err = diagnostic.ScoreWithStats(ctx, evaluation)
+	} else {
+		scores, err = s.Scorer.Score(ctx, evaluation)
+	}
 	if err != nil {
-		return nil, err
+		return nil, stats, err
 	}
 	result := maps.Clone(scores)
 	for id, score := range result {
@@ -354,7 +374,7 @@ func (s textOnlyJevScorer) Score(ctx context.Context, evaluation engine.Evaluati
 		}
 		result[id] = score
 	}
-	return result, nil
+	return result, stats, nil
 }
 
 // jevGoal uses recent user requests, in order, unless a focus was supplied.
@@ -384,4 +404,8 @@ func jevGoal(msgs []message.Message, focus string) string {
 		prompts[i], prompts[j] = prompts[j], prompts[i]
 	}
 	return "Continue these recent user requests (oldest first):\n\n" + strings.Join(prompts, "\n\n")
+}
+
+func shouldFallbackJev(ctx context.Context, method string, result compactResult, settings config.JevSettings, summaryAvailable bool) bool {
+	return method == "jev" && result.fallback && settings.SummaryFallback && summaryAvailable && ctx.Err() == nil
 }

@@ -728,17 +728,21 @@ func (a *agent) Summarize(ctx context.Context, sessionID string, options ...Comp
 		msgs = activeSummaryMessages(msgs, current.SummaryMessageID)
 		if opts.Method != "" && opts.Method != "summary" {
 			result, err := a.compactContext(summarizeCtx, msgs, opts)
-			if err != nil {
-				publish(AgentEvent{Error: err, Done: true})
+			if shouldFallbackJev(summarizeCtx, opts.Method, result, config.Get().Compaction.Jev, a.summarizeProvider != nil) {
+				publish(AgentEvent{Progress: "Jev could not save enough context · generating a summary..."})
+			} else {
+				if err != nil {
+					publish(AgentEvent{Error: err, Done: true})
+					return
+				}
+				err = a.saveCompactedContext(summarizeCtx, current, result, opts.Method)
+				if err != nil {
+					publish(AgentEvent{Error: err, Done: true})
+					return
+				}
+				publish(AgentEvent{Progress: result.notice, Done: true})
 				return
 			}
-			err = a.saveCompactedContext(summarizeCtx, current, result, opts.Method)
-			if err != nil {
-				publish(AgentEvent{Error: err, Done: true})
-				return
-			}
-			publish(AgentEvent{Progress: result.notice, Done: true})
-			return
 		}
 
 		// Add a system message to guide the summarization

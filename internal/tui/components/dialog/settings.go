@@ -69,6 +69,7 @@ func (s *settingsCmp) rows() []settingRow {
 		}
 		rows = []settingRow{
 			{"Compaction", "Method", cfg.Compaction.EffectiveMethod(), "Enter cycles eligible methods. Capability rows below explain unavailable methods.", "compact-method"},
+			{"Compaction", "Jev summary fallback", fmt.Sprint(cfg.Compaction.Jev.SummaryFallback), "Use the summary model if Jev fails or saves less than 25% of text tokens. Off by default.", "compact-jev-fallback"},
 			{"Compaction", "Jev key", jevStatus, "Set compaction.jev.apiKey in ~/.owncode.json. The key is never displayed here.", ""},
 			{"Compaction", "Summary mode", cfg.Compaction.EffectiveMode(), "Balanced: coding context. Brief: essentials. Handoff: structured continuation notes.", "compact-mode"},
 			{"Compaction", "Keep in summary", cfg.Compaction.Focus, "Optional focus: paths, decisions, tests, or details to preserve. Enter to edit.", "compact-focus"},
@@ -322,6 +323,8 @@ func (s *settingsCmp) changeCompaction(action string) tea.Cmd {
 		default:
 			settings.Mode = "balanced"
 		}
+	case "compact-jev-fallback":
+		settings.Jev.SummaryFallback = !settings.Jev.SummaryFallback
 	case "compact-auto":
 		automatic = !automatic
 	case "compact-focus":

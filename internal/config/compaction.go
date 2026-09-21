@@ -98,9 +98,10 @@ func saveCompaction(path string, settings CompactionSettings, automatic bool) er
 
 // JevSettings configures the Compact Engine scoring client.
 type JevSettings struct {
-	APIKey       string `json:"apiKey,omitempty"`
-	Model        string `json:"model,omitempty"`
-	TargetTokens int    `json:"targetTokens,omitempty"`
+	SummaryFallback bool   `json:"summaryFallback,omitempty"`
+	APIKey          string `json:"apiKey,omitempty"`
+	Model           string `json:"model,omitempty"`
+	TargetTokens    int    `json:"targetTokens,omitempty"`
 }
 
 // EffectiveMethod defaults to the existing summary behavior.

@@ -127,9 +127,10 @@ func generateSchema() map[string]any {
 		"properties": map[string]any{
 			"method": map[string]any{"type": "string", "enum": []string{"summary", "shake", "snapcompact", "jev", "native"}, "default": "summary"},
 			"jev": map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{
-				"apiKey":       map[string]any{"type": "string", "description": "Required for Jev compaction. Keep in a private local config.", "writeOnly": true},
-				"model":        map[string]any{"type": "string", "default": "jev-latest"},
-				"targetTokens": map[string]any{"type": "integer", "minimum": 1, "description": "Text token target. Default: 70% of the active text context."},
+				"apiKey":          map[string]any{"type": "string", "description": "Required for Jev compaction. Keep in a private local config.", "writeOnly": true},
+				"model":           map[string]any{"type": "string", "default": "jev-latest"},
+				"summaryFallback": map[string]any{"type": "boolean", "default": false, "description": "Use the summary model if Jev fails or saves less than 25% of text tokens."},
+				"targetTokens":    map[string]any{"type": "integer", "minimum": 1, "description": "Text token target. Default: 70% of the active text context."},
 			}},
 			"mode":      map[string]any{"type": "string", "enum": []string{"balanced", "brief", "handoff"}, "default": "balanced"},
 			"focus":     map[string]any{"type": "string", "description": "Additional instructions about information to retain in the summary."},

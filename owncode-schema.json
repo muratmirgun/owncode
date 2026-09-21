@@ -270,6 +270,11 @@
               "default": "jev-latest",
               "type": "string"
             },
+            "summaryFallback": {
+              "default": false,
+              "description": "Use the summary model if Jev fails or saves less than 25% of text tokens.",
+              "type": "boolean"
+            },
             "targetTokens": {
               "description": "Text token target. Default: 70% of the active text context.",
               "minimum": 1,
