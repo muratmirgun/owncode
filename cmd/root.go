@@ -257,8 +257,6 @@ func setupSubscriber[T any](
 
 				select {
 				case outputCh <- msg:
-				case <-time.After(2 * time.Second):
-					logging.Warn("message dropped due to slow consumer", "name", name)
 				case <-ctx.Done():
 					logging.Info("subscription cancelled", "name", name)
 					return
@@ -279,6 +277,9 @@ func setupSubscriptions(app *app.App, parentCtx context.Context) (chan tea.Msg, 
 
 	setupSubscriber(ctx, &wg, "logging", logging.Subscribe, ch)
 	setupSubscriber(ctx, &wg, "sessions", app.Sessions.Subscribe, ch)
+	if app.History != nil {
+		setupSubscriber(ctx, &wg, "history", app.History.Subscribe, ch)
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

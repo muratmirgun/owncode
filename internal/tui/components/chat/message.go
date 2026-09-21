@@ -45,7 +45,14 @@ func toMarkdown(content string, focused bool, width int) string {
 	return rendered
 }
 
+type textRenderFunc func(string, bool, bool, int, ...string) string
+
 func renderMessage(msg string, isUser bool, isFocused bool, width int, info ...string) string {
+	return prepareMessageRender(msg, isUser, isFocused, width, info...)()
+}
+
+// Capture theme styles and the markdown renderer before leaving the UI thread.
+func prepareMessageRender(msg string, isUser bool, isFocused bool, width int, info ...string) func() string {
 	t := theme.CurrentTheme()
 
 	style := styles.BaseStyle().
@@ -61,28 +68,36 @@ func renderMessage(msg string, isUser bool, isFocused bool, width int, info ...s
 		style = style.BorderForeground(t.Secondary())
 	}
 
-	// Apply markdown formatting and handle background color
-	parts := []string{
-		styles.ForceReplaceBackgroundWithLipgloss(toMarkdown(msg, isFocused, max(1, width-3)), t.BackgroundSecondary()),
+	renderer := styles.GetMarkdownRenderer(max(1, width-3))
+	return func() string {
+		markdown, _ := renderer.Render(msg)
+		// Apply markdown formatting and handle background color
+		parts := []string{
+			styles.ForceReplaceBackgroundWithLipgloss(markdown, t.BackgroundSecondary()),
+		}
+
+		// Remove newline at the end
+		parts[0] = strings.TrimSuffix(parts[0], "\n")
+		if len(info) > 0 {
+			parts = append(parts, info...)
+		}
+
+		rendered := style.Render(
+			lipgloss.JoinVertical(
+				lipgloss.Left,
+				parts...,
+			),
+		)
+
+		return styles.Surface(rendered, t.BackgroundSecondary())
 	}
-
-	// Remove newline at the end
-	parts[0] = strings.TrimSuffix(parts[0], "\n")
-	if len(info) > 0 {
-		parts = append(parts, info...)
-	}
-
-	rendered := style.Render(
-		lipgloss.JoinVertical(
-			lipgloss.Left,
-			parts...,
-		),
-	)
-
-	return styles.Surface(rendered, t.BackgroundSecondary())
 }
 
-func renderUserMessage(msg message.Message, isFocused bool, width int, position int) uiMessage {
+func renderUserMessage(msg message.Message, isFocused bool, width int, position int, renderers ...textRenderFunc) uiMessage {
+	renderText := textRenderFunc(renderMessage)
+	if len(renderers) > 0 {
+		renderText = renderers[0]
+	}
 	var styledAttachments []string
 	t := theme.CurrentTheme()
 	attachmentStyles := styles.BaseStyle().
@@ -102,9 +117,9 @@ func renderUserMessage(msg message.Message, isFocused bool, width int, position 
 	content := ""
 	if len(styledAttachments) > 0 {
 		attachmentContent := styles.BaseStyle().Width(width).Render(lipgloss.JoinHorizontal(lipgloss.Left, styledAttachments...))
-		content = renderMessage(msg.Content().String(), true, isFocused, width, attachmentContent)
+		content = renderText(msg.Content().String(), true, isFocused, width, attachmentContent)
 	} else {
-		content = renderMessage(msg.Content().String(), true, isFocused, width)
+		content = renderText(msg.Content().String(), true, isFocused, width)
 	}
 	userMsg := uiMessage{
 		ID:          msg.ID,
@@ -126,7 +141,12 @@ func renderAssistantMessage(
 	isSummary bool,
 	width int,
 	position int,
+	renderers ...textRenderFunc,
 ) []uiMessage {
+	renderText := textRenderFunc(renderMessage)
+	if len(renderers) > 0 {
+		renderText = renderers[0]
+	}
 	messages := []uiMessage{}
 	content := msg.Content().String()
 	thinking := msg.IsThinking()
@@ -176,7 +196,7 @@ func renderAssistantMessage(
 			info = append(info, baseStyle.Width(max(1, width-3)).Foreground(t.TextMuted()).Render(" (summary)"))
 		}
 
-		content = renderMessage(content, false, true, width, info...)
+		content = renderText(content, false, true, width, info...)
 		messages = append(messages, uiMessage{
 			ID:          msg.ID,
 			messageType: assistantMessageType,

@@ -289,8 +289,10 @@ Discovery uses this precedence:
 
 1. `<project>/.owncode/skills/<name>/SKILL.md`
 2. `<project>/.agents/skills/<name>/SKILL.md`
-3. `$XDG_CONFIG_HOME/owncode/skills/<name>/SKILL.md`, or `~/.config/owncode/skills/<name>/SKILL.md`
-4. `~/.agents/skills/<name>/SKILL.md`
+3. `~/.owncode/skills/<name>/SKILL.md` (new global installations)
+4. `$XDG_CONFIG_HOME/owncode/skills/<name>/SKILL.md`, or `~/.config/owncode/skills/<name>/SKILL.md`
+5. `~/.agents/skills/<name>/SKILL.md`
+6. `~/.agent/skills/<name>/SKILL.md` (compatibility)
 
 A minimal skill:
 
@@ -305,6 +307,27 @@ Read the changed functions. Report concrete failures with file paths and evidenc
 The name must match its directory. Names use lowercase letters, numbers, and single hyphens, up to 64 characters.
 Optional frontmatter fields include `license`, `user-invocable: false`, and `disable-model-invocation: true`.
 The first copy wins. The detail view lists shadowed paths. A disabled override does not reveal a lower-priority copy.
+
+Install skills without opening the interface or connecting a model:
+
+```bash
+owncode add @owner/repo
+owncode add https://github.com/owner/repo
+owncode add @owner/repo --skill review-go
+owncode add 'https://github.com/owner/repo#skills/review-go'
+owncode add ./local-skills
+```
+
+The command installs all discovered skills by default into `~/.owncode/skills`.
+Use `--skill` or `#path/to/skill` to select one.
+The installer fetches the repository once, records its revision, and does not execute its scripts.
+Existing names stop the batch before installation. Use `/skills` for managed updates.
+An I/O failure during installation can leave earlier skills installed; the command reports each completed installation.
+
+Type `@` in the message field to find files and installed skills.
+Skill selections insert `@skill/name`; these references work anywhere in a message.
+The existing leading `$name` syntax remains supported.
+Global configuration remains in `~/.owncode.json`; this command does not move it.
 
 Enter `/skills` to manage skills:
 
@@ -333,7 +356,8 @@ Loaded instructions carry their source path, content hash, and installed revisio
 
 Limits: 500 discovered skills, 256 KiB per text file, and 128 files / 4 MiB per installation.
 Escaping paths and installation symlinks are rejected. Existing tool permissions still apply.
-Shared-directory symlinks must stay inside their discovery root.
+Global skill directories can contain symlinks to external skill directories. Supporting files must stay inside the resolved skill directory.
+OwnCode rejects a changed symlink target until the catalog refreshes. Project symlinks remain confined to their discovery root.
 
 Discover uses the documented skills.sh API. Set `OWNCODE_SKILLS_TOKEN` to a valid catalog API token if you have one.
 This requires the API's supported authentication, not a model API key.

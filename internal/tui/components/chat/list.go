@@ -47,6 +47,13 @@ type messagesCmp struct {
 	dirty            bool
 	framePending     bool
 	animationPending bool
+	pendingCommands  []tea.Cmd
+	loadGeneration   uint64
+	loadCancel       context.CancelFunc
+	textBusy         bool
+	textGeneration   uint64
+	textCache        map[string]renderedText
+	textWaiting      map[string]struct{}
 }
 type renderFinishedMsg struct{}
 type activityFrameMsg struct{ owner *messagesCmp }
@@ -84,6 +91,7 @@ func (m *messagesCmp) Init() tea.Cmd {
 
 func (m *messagesCmp) Update(msg tea.Msg) (model util.Model, command tea.Cmd) {
 	defer func() {
+		command = tea.Batch(command, m.takeCommands())
 		if m.session.ParentSessionID != "" || m.animationPending {
 			return
 		}
@@ -111,6 +119,7 @@ func (m *messagesCmp) Update(msg tea.Msg) (model util.Model, command tea.Cmd) {
 		switch event := msg.(type) {
 		case tea.KeyPressMsg:
 			if event.String() == "up" || event.String() == "esc" {
+				m.child.resetLoads()
 				m.child = nil
 				if m.dirty {
 					m.renderView()
@@ -121,6 +130,7 @@ func (m *messagesCmp) Update(msg tea.Msg) (model util.Model, command tea.Cmd) {
 			return m, cmd
 		case tea.MouseClickMsg:
 			if event.Button == tea.MouseLeft && event.Y == 0 {
+				m.child.resetLoads()
 				m.child = nil
 				if m.dirty {
 					m.renderView()
@@ -139,6 +149,7 @@ func (m *messagesCmp) Update(msg tea.Msg) (model util.Model, command tea.Cmd) {
 			_, cmd := m.child.Update(event)
 			return m, cmd
 		case SessionSelectedMsg, SessionClearedMsg:
+			m.child.resetLoads()
 			m.child = nil
 		default:
 			_, cmd := m.child.Update(msg)
@@ -146,6 +157,23 @@ func (m *messagesCmp) Update(msg tea.Msg) (model util.Model, command tea.Cmd) {
 		}
 	}
 	switch msg := msg.(type) {
+	case historyLoadedMsg:
+		if msg.owner != m {
+			return m, tea.Batch(cmds...)
+		}
+		return m, m.applyHistory(msg)
+	case taskHistoryLoadedMsg:
+		if msg.owner == m && msg.generation == m.loadGeneration && m.taskHistory[msg.id] == nil {
+			m.taskHistory[msg.id] = msg.messages
+			clear(m.cachedContent)
+			return m, m.queueRender()
+		}
+		return m, tea.Batch(cmds...)
+	case textRenderedMsg:
+		if msg.owner != m {
+			return m, tea.Batch(cmds...)
+		}
+		return m, m.applyText(msg)
 	case conversationFrameMsg:
 		if msg.owner != m {
 			return m, tea.Batch(cmds...)
@@ -176,6 +204,10 @@ func (m *messagesCmp) Update(msg tea.Msg) (model util.Model, command tea.Cmd) {
 		}
 		return m, nil
 	case SessionClearedMsg:
+		m.resetLoads()
+		m.uiMessages = nil
+		m.viewport.SetItems(nil)
+		clear(m.cachedContent)
 		m.session = session.Session{}
 		m.messages = make([]message.Message, 0)
 		m.currentMsgID = ""
@@ -279,13 +311,19 @@ func (m *messagesCmp) Update(msg tea.Msg) (model util.Model, command tea.Cmd) {
 				}
 			}
 		} else if msg.Type == pubsub.UpdatedEvent && msg.Payload.SessionID == m.session.ID {
+			found := false
 			for i, v := range m.messages {
 				if v.ID == msg.Payload.ID {
 					m.messages[i] = msg.Payload
+					found = true
 					delete(m.cachedContent, msg.Payload.ID)
 					needsRerender = true
 					break
 				}
+			}
+			if !found && m.rendering {
+				m.messages = append(m.messages, msg.Payload)
+				needsRerender = true
 			}
 		}
 		if needsRerender {
@@ -341,6 +379,7 @@ func (m *messagesCmp) renderView() {
 				msg.ID == m.currentMsgID,
 				m.width,
 				pos,
+				m.textRenderer(msg.ID),
 			)
 			m.uiMessages = append(m.uiMessages, userMsg)
 			m.cachedContent[msg.ID] = cacheItem{
@@ -362,17 +401,12 @@ func (m *messagesCmp) renderView() {
 				if _, loaded := m.taskHistory[agent.TaskID(call)]; loaded {
 					continue
 				}
-				m.taskHistory[agent.TaskID(call)] = nil
+				id := agent.TaskID(call)
+				m.taskHistory[id] = nil
 				if m.app.Messages != nil {
-					history, err := m.app.Messages.List(context.Background(), agent.TaskID(call))
-					if err == nil {
-						for _, child := range history {
-							if child.Role == message.Assistant {
-								m.taskHistory[agent.TaskID(call)] = []message.Message{child}
-							}
-						}
-					}
+					m.pendingCommands = append(m.pendingCommands, m.loadTaskHistory(id))
 				}
+
 			}
 
 			assistantMessages := renderAssistantMessage(
@@ -384,6 +418,7 @@ func (m *messagesCmp) renderView() {
 				isSummary,
 				m.width,
 				pos,
+				m.textRenderer(msg.ID),
 			)
 			for _, msg := range assistantMessages {
 				m.uiMessages = append(m.uiMessages, msg)
@@ -538,6 +573,8 @@ func (m *messagesCmp) initialScreen() string {
 }
 
 func (m *messagesCmp) rerender() {
+	m.textGeneration++
+	clear(m.textCache)
 	for _, msg := range m.messages {
 		delete(m.cachedContent, msg.ID)
 	}
@@ -546,10 +583,10 @@ func (m *messagesCmp) rerender() {
 
 func (m *messagesCmp) SetSize(width, height int) tea.Cmd {
 	if m.child != nil {
-		m.child.SetSize(width, max(1, height-1))
+		m.pendingCommands = append(m.pendingCommands, m.child.SetSize(width, max(1, height-1)))
 	}
 	if m.width == width && m.height == height {
-		return nil
+		return m.takeCommands()
 	}
 	followBottom := m.viewport.AtBottom()
 	m.width = width
@@ -562,32 +599,27 @@ func (m *messagesCmp) SetSize(width, height int) tea.Cmd {
 	if followBottom {
 		m.viewport.GotoBottom()
 	}
-	return nil
+	return m.takeCommands()
 }
 
 func (m *messagesCmp) GetSize() (int, int) {
 	return m.width, m.height
 }
 
-func (m *messagesCmp) SetSession(session session.Session) tea.Cmd {
-	if m.session.ID == session.ID {
+func (m *messagesCmp) SetSession(selected session.Session) tea.Cmd {
+	if m.session.ID == selected.ID {
 		return nil
 	}
-	m.session = session
+	m.resetLoads()
+	m.session = selected
+	m.messages = nil
+	m.currentMsgID = ""
 	m.taskHistory = make(map[string][]message.Message)
-	messages, err := m.app.Messages.List(context.Background(), session.ID)
-	if err != nil {
-		return util.ReportError(err)
-	}
-	m.messages = messages
-	if len(m.messages) > 0 {
-		m.currentMsgID = m.messages[len(m.messages)-1].ID
-	}
-	delete(m.cachedContent, m.currentMsgID)
-	m.renderView()
-	m.viewport.GotoBottom()
-	m.rendering = false
-	return nil
+	clear(m.cachedContent)
+	m.uiMessages = nil
+	m.viewport.SetItems(nil)
+	m.rendering = true
+	return m.loadHistory(false)
 }
 
 func (m *messagesCmp) BindingKeys() []key.Binding {

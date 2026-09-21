@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -23,67 +24,81 @@ import (
 )
 
 type sidebarCmp struct {
-	width, height int
-	session       session.Session
-	history       history.Service
-	modFiles      map[string]struct {
+	width, height            int
+	filesLoading, filesDirty bool
+	generation               uint64
+	workingDir               string
+	session                  session.Session
+	history                  history.Service
+	modFiles                 map[string]struct {
 		additions int
 		removals  int
 	}
 }
 
-func (m *sidebarCmp) Init() tea.Cmd {
-	if m.history != nil {
-		ctx := context.Background()
-		// Subscribe to file events
-		filesCh := m.history.Subscribe(ctx)
-
-		// Initialize the modified files map
-		m.modFiles = make(map[string]struct {
-			additions int
-			removals  int
-		})
-
-		// Load initial files and calculate diffs
-		m.loadModifiedFiles(ctx)
-
-		// Return a command that will send file events to the Update method
-		return func() tea.Msg {
-			return <-filesCh
-		}
+type sidebarLoadedMsg struct {
+	owner      *sidebarCmp
+	sessionID  string
+	generation uint64
+	files      map[string]struct {
+		additions int
+		removals  int
 	}
-	return nil
+}
+
+func (m *sidebarCmp) Init() tea.Cmd { return m.refreshFiles() }
+
+func (m *sidebarCmp) refreshFiles() tea.Cmd {
+	if m.history == nil || m.session.ID == "" {
+		return nil
+	}
+	m.filesDirty = true
+	if m.filesLoading {
+		return nil
+	}
+	m.filesLoading, m.filesDirty = true, false
+	// Only this value copy is touched by the background command.
+	snapshot := *m
+	snapshot.workingDir = config.WorkingDirectory()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		snapshot.loadModifiedFiles(ctx)
+		return sidebarLoadedMsg{owner: m, sessionID: snapshot.session.ID, generation: snapshot.generation, files: snapshot.modFiles}
+	}
 }
 
 func (m *sidebarCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case sidebarLoadedMsg:
+		if msg.owner != m {
+			return m, nil
+		}
+		m.filesLoading = false
+		if msg.sessionID == m.session.ID && msg.generation == m.generation {
+			m.modFiles = msg.files
+		}
+		if m.filesDirty {
+			return m, m.refreshFiles()
+		}
 	case SessionClearedMsg:
+		m.generation++
 		m.session = session.Session{}
-		clear(m.modFiles)
+		m.modFiles = nil
 	case SessionSelectedMsg:
 		if msg.ID != m.session.ID {
+			m.generation++
 			m.session = msg
-			ctx := context.Background()
-			m.loadModifiedFiles(ctx)
+			m.modFiles = nil
+			return m, m.refreshFiles()
 		}
 	case pubsub.Event[session.Session]:
-		if msg.Type == pubsub.UpdatedEvent {
-			if m.session.ID == msg.Payload.ID {
-				m.session = msg.Payload
-			}
+		if msg.Type == pubsub.UpdatedEvent && m.session.ID == msg.Payload.ID {
+			m.session = msg.Payload
 		}
 	case pubsub.Event[history.File]:
 		if msg.Payload.SessionID == m.session.ID {
-			// Process the individual file change instead of reloading all files
-			ctx := context.Background()
-			m.processFileChanges(ctx, msg.Payload)
-
-			// Return a command to continue receiving events
-			return m, func() tea.Msg {
-				ctx := context.Background()
-				filesCh := m.history.Subscribe(ctx)
-				return <-filesCh
-			}
+			return m, m.refreshFiles()
 		}
 	}
 	return m, nil
@@ -269,7 +284,7 @@ func (m *sidebarCmp) loadModifiedFiles(ctx context.Context) {
 		if additions > 0 || removals > 0 {
 			// Remove working directory prefix from file path
 			displayPath := file.Path
-			workingDir := config.WorkingDirectory()
+			workingDir := m.workingDir
 			displayPath = strings.TrimPrefix(displayPath, workingDir)
 			displayPath = strings.TrimPrefix(displayPath, "/")
 
@@ -282,72 +297,6 @@ func (m *sidebarCmp) loadModifiedFiles(ctx context.Context) {
 			}
 		}
 	}
-}
-
-func (m *sidebarCmp) processFileChanges(ctx context.Context, file history.File) {
-	// Skip if this is the initial version (no changes to show)
-	if file.Version == history.InitialVersion {
-		return
-	}
-
-	// Find the initial version for this file
-	initialVersion, err := m.findInitialVersion(ctx, file.Path)
-	if err != nil || initialVersion.ID == "" {
-		return
-	}
-
-	// Skip if content hasn't changed
-	if initialVersion.Content == file.Content {
-		// If this file was previously modified but now matches the initial version,
-		// remove it from the modified files list
-		displayPath := getDisplayPath(file.Path)
-		delete(m.modFiles, displayPath)
-		return
-	}
-
-	// Calculate diff between initial and latest version
-	_, additions, removals := diff.GenerateDiff(initialVersion.Content, file.Content, file.Path)
-
-	// Only add to modified files if there are changes
-	if additions > 0 || removals > 0 {
-		displayPath := getDisplayPath(file.Path)
-		m.modFiles[displayPath] = struct {
-			additions int
-			removals  int
-		}{
-			additions: additions,
-			removals:  removals,
-		}
-	} else {
-		// If no changes, remove from modified files
-		displayPath := getDisplayPath(file.Path)
-		delete(m.modFiles, displayPath)
-	}
-}
-
-// Helper function to find the initial version of a file
-func (m *sidebarCmp) findInitialVersion(ctx context.Context, path string) (history.File, error) {
-	// Get all versions of this file for the session
-	fileVersions, err := m.history.ListBySession(ctx, m.session.ID)
-	if err != nil {
-		return history.File{}, err
-	}
-
-	// Find the initial version
-	for _, v := range fileVersions {
-		if v.Path == path && v.Version == history.InitialVersion {
-			return v, nil
-		}
-	}
-
-	return history.File{}, fmt.Errorf("initial version not found")
-}
-
-// Helper function to get the display path for a file
-func getDisplayPath(path string) string {
-	workingDir := config.WorkingDirectory()
-	displayPath := strings.TrimPrefix(path, workingDir)
-	return strings.TrimPrefix(displayPath, "/")
 }
 
 func groupDigits(value int64) string {

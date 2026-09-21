@@ -51,8 +51,10 @@ func Roots(workdir string) []Root {
 	return []Root{
 		{filepath.Join(workdir, ".owncode", "skills"), "project"},
 		{filepath.Join(workdir, ".agents", "skills"), "project"},
+		{filepath.Join(home, ".owncode", "skills"), "user"},
 		{filepath.Join(userConfig, "owncode", "skills"), "user"},
 		{filepath.Join(home, ".agents", "skills"), "user"},
+		{filepath.Join(home, ".agent", "skills"), "user"},
 	}
 }
 
@@ -165,9 +167,19 @@ func Discover(ctx context.Context, roots []Root) ([]Entry, []string) {
 			if strings.HasPrefix(child.Name(), ".") {
 				continue
 			}
-			// Shared skill managers use links. Confine the link target to this discovery root.
+			// User-managed directory links establish the boundary for supporting files.
+			readRoot := root.Path
+			readName := filepath.Join(child.Name(), "SKILL.md")
+			if root.Scope == "user" && child.Type()&os.ModeSymlink != 0 {
+				resolved, err := filepath.EvalSymlinks(filepath.Join(root.Path, child.Name()))
+				if err != nil {
+					problems = append(problems, child.Name()+": "+err.Error())
+					continue
+				}
+				readRoot, readName = resolved, "SKILL.md"
+			}
 			relative := filepath.Join(child.Name(), "SKILL.md")
-			data, err := ReadFile(root.Path, relative)
+			data, err := ReadFile(readRoot, readName)
 			if os.IsNotExist(err) {
 				continue
 			}
@@ -186,6 +198,9 @@ func Discover(ctx context.Context, roots []Root) ([]Entry, []string) {
 			entry.Path, _ = filepath.Abs(filepath.Join(root.Path, relative))
 			entry.Scope = root.Scope
 			entry.root = root.Path
+			if readRoot != root.Path {
+				entry.root = ""
+			}
 			entry.directory, err = filepath.EvalSymlinks(filepath.Dir(entry.Path))
 			if err != nil {
 				problems = append(problems, err.Error())
@@ -256,6 +271,13 @@ func Load(entry Entry, file string) (string, error) {
 // SetEnabled changes the persistent state without deleting skill content.
 func openEntry(entry Entry) (*os.Root, error) {
 	if entry.root == "" {
+		if entry.directory != "" {
+			actual, err := filepath.EvalSymlinks(filepath.Dir(entry.Path))
+			if err != nil || actual != entry.directory {
+				return nil, fmt.Errorf("skill directory changed; refresh before loading")
+			}
+			return os.OpenRoot(entry.directory)
+		}
 		return os.OpenRoot(filepath.Dir(entry.Path))
 	}
 	root, err := os.OpenRoot(entry.root)
@@ -288,8 +310,8 @@ func SetEnabled(entry Entry, enabled bool) error {
 	return marker.Close()
 }
 
-// ExpandInvocation loads a leading $skill-name reference before saving the user message.
-func ExpandInvocation(ctx context.Context, workdir, content string) (string, error) {
+// expandLeadingInvocation loads a leading $skill-name reference.
+func expandLeadingInvocation(ctx context.Context, workdir, content string) (string, error) {
 	fields := strings.Fields(content)
 	if len(fields) == 0 || !strings.HasPrefix(fields[0], "$") {
 		return content, nil
@@ -315,4 +337,33 @@ func ExpandInvocation(ctx context.Context, workdir, content string) (string, err
 		}
 	}
 	return "", fmt.Errorf("skill %s not found; open /skills", name)
+}
+
+// ExpandInvocation loads a leading $name and explicit @skill/name mentions.
+func ExpandInvocation(ctx context.Context, workdir, content string) (string, error) {
+	result, err := expandLeadingInvocation(ctx, workdir, content)
+	if err != nil {
+		return "", err
+	}
+	seen := map[string]bool{}
+	fields := strings.Fields(content)
+	if len(fields) > 0 && strings.HasPrefix(fields[0], "$") {
+		seen[strings.TrimPrefix(fields[0], "$")] = true
+	}
+	for _, field := range fields {
+		if !strings.HasPrefix(field, "@skill/") {
+			continue
+		}
+		name := strings.TrimPrefix(field, "@skill/")
+		if !validName.MatchString(name) || seen[name] {
+			continue
+		}
+		expanded, err := expandLeadingInvocation(ctx, workdir, "$"+name)
+		if err != nil {
+			return "", err
+		}
+		result += "\n\n" + strings.TrimPrefix(expanded, "$"+name+"\n\n")
+		seen[name] = true
+	}
+	return result, nil
 }

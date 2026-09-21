@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -228,6 +227,14 @@ func (m *editorCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case historyLoadedMsg:
+		if msg.err == nil && msg.session.ID == m.session.ID && msg.owner != nil && msg.generation == msg.owner.loadGeneration {
+			m.history = nil
+			for _, previous := range msg.owner.messages {
+				m.rememberMessage(previous)
+			}
+		}
+		return m, nil
 	case SessionClearedMsg:
 		m.history = nil
 		m.resetRecall()
@@ -241,15 +248,6 @@ func (m *editorCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 			m.session = msg
 			m.history = nil
 			m.resetRecall()
-			if m.app != nil && m.app.Messages != nil {
-				messages, err := m.app.Messages.List(context.Background(), msg.ID)
-				if err != nil {
-					return m, util.ReportError(err)
-				}
-				for _, previous := range messages {
-					m.rememberMessage(previous)
-				}
-			}
 		}
 		return m, nil
 	case dialog.AttachmentAddedMsg:

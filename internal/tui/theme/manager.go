@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/logging"
 )
@@ -45,7 +44,6 @@ func SetTheme(name string) error {
 	globalManager.mu.Lock()
 	defer globalManager.mu.Unlock()
 
-	delete(styles.Registry, "charm")
 	if _, exists := globalManager.themes[name]; !exists {
 		return fmt.Errorf("theme '%s' not found", name)
 	}
