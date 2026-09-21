@@ -138,8 +138,18 @@ See [compaction setup and limits](docs/guide.md#context-compaction), including t
 ## Skills and project context
 
 OwnCode reads ancestor `AGENTS.md` files and loads skill instructions on demand.
-Use `/skills` to inspect, install, update, or roll back a skill.
-Start a message with `$skill-name` to select one.
+Install repository skills globally:
+
+```bash
+owncode add @owner/repo
+owncode add https://github.com/owner/repo --skill review-go
+```
+
+New installations use `~/.owncode/skills`.
+Type `@` to select installed skills or files. Skill selections insert `@skill/name`.
+OwnCode also discovers symlinked skills under `~/.agents/skills` and `~/.agent/skills`.
+Use `/skills` to inspect, update, or roll back a skill.
+The leading `$skill-name` syntax remains supported.
 
 - Install skills from a local directory or a Git repository.
 - Use project skills in `.owncode/skills/` or `.agents/skills/`.

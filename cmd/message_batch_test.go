@@ -3,7 +3,9 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -65,4 +67,23 @@ func TestMessageBatchPreservesLifecycleAndFinalUsage(t *testing.T) {
 	require.True(t, events[1].Payload.IsFinished())
 	require.Equal(t, int64(120), events[1].Payload.OutputTokens)
 	require.Equal(t, pubsub.DeletedEvent, events[2].Type)
+}
+
+func TestSubscriberRetainsEventDuringLongUIStall(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		var workers sync.WaitGroup
+		defer func() { cancel(); workers.Wait() }()
+		input := make(chan pubsub.Event[int], 1)
+		output := make(chan tea.Msg)
+		input <- pubsub.Event[int]{Type: pubsub.CreatedEvent, Payload: 42}
+		setupSubscriber(ctx, &workers, "fixture", func(context.Context) <-chan pubsub.Event[int] { return input }, output)
+		time.Sleep(3 * time.Second)
+		select {
+		case msg := <-output:
+			require.Equal(t, 42, msg.(pubsub.Event[int]).Payload)
+		default:
+			t.Fatal("subscriber discarded the event while the UI was unavailable")
+		}
+	})
 }

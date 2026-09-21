@@ -128,6 +128,7 @@ func (c *completionDialogCmp) complete(item CompletionItemI) tea.Cmd {
 func (c *completionDialogCmp) close() tea.Cmd {
 	c.listView.SetItems([]CompletionItemI{})
 	c.pseudoSearchTextArea.Reset()
+	c.query = ""
 	c.pseudoSearchTextArea.Blur()
 
 	return util.CmdHandler(CompletionDialogCloseMsg{})

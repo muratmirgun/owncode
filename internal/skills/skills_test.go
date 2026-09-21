@@ -186,3 +186,102 @@ func TestRollbackAndExplicitInvocation(t *testing.T) {
 		t.Fatalf("%s %v", content, err)
 	}
 }
+
+func TestGlobalSkillLinksAndMentions(t *testing.T) {
+	home, workdir, source := t.TempDir(), t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	target := filepath.Dir(fixture(t, source, "review", "linked instructions"))
+	shared := filepath.Join(home, ".agents", "skills")
+	if err := os.MkdirAll(shared, 0700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(shared, "review")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	entries, problems := Discover(t.Context(), Roots(workdir))
+	if len(entries) != 1 || len(problems) != 0 {
+		t.Fatalf("discovery: %v %v", entries, problems)
+	}
+	content, err := ExpandInvocation(t.Context(), workdir, "Please use @skill/review on this code")
+	if err != nil || !strings.Contains(content, "linked instructions") {
+		t.Fatalf("mention: %s %v", content, err)
+	}
+	if err := os.Symlink(filepath.Join(home, "secret"), filepath.Join(target, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(entries[0], "escape"); err == nil {
+		t.Fatal("supporting file escaped")
+	}
+	other := filepath.Dir(fixture(t, t.TempDir(), "review", "replacement"))
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(other, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(entries[0], ""); err == nil {
+		t.Fatal("retargeted link loaded")
+	}
+	fixture(t, filepath.Join(home, ".owncode", "skills"), "review", "owncode instructions")
+	content, err = ExpandInvocation(t.Context(), workdir, "@skill/review test")
+	if err != nil || !strings.Contains(content, "owncode instructions") {
+		t.Fatalf("precedence: %s %v", content, err)
+	}
+}
+
+func TestProjectLinksRemainConfined(t *testing.T) {
+	root, source := t.TempDir(), t.TempDir()
+	target := filepath.Dir(fixture(t, source, "review", "external"))
+	if err := os.Symlink(target, filepath.Join(root, "review")); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := Discover(t.Context(), []Root{{root, "project"}})
+	if len(entries) != 0 {
+		t.Fatal("external project link accepted")
+	}
+}
+
+func TestPrepareAllSelectionAndDuplicates(t *testing.T) {
+	source := t.TempDir()
+	fixture(t, source, "one", "first")
+	fixture(t, source, "two", "second")
+	proposals, err := PrepareAll(t.Context(), source, "")
+	if err != nil || len(proposals) != 2 {
+		t.Fatalf("all: %v %v", proposals, err)
+	}
+	proposals, err = PrepareAll(t.Context(), source, "two")
+	if err != nil || len(proposals) != 1 || proposals[0].Entry.Name != "two" {
+		t.Fatalf("selection: %v %v", proposals, err)
+	}
+	fixture(t, filepath.Join(source, "nested"), "one", "duplicate")
+	if _, err := PrepareAll(t.Context(), source, ""); err == nil {
+		t.Fatal("duplicate names accepted")
+	}
+	proposals, err = PrepareAll(t.Context(), source+"#two", "")
+	if err != nil || len(proposals) != 1 {
+		t.Fatalf("subdirectory: %v %v", proposals, err)
+	}
+}
+
+func TestRepositorySourcesFetchOnce(t *testing.T) {
+	source, bin := t.TempDir(), t.TempDir()
+	fixture(t, source, "review", "remote skill")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// The fake Git executable asserts URL normalization and supplies a local checkout.
+	script := "#!/bin/sh\ncase \"$*\" in\n*clone*)\n previous=\"\"\n for arg do previous2=\"$previous\"; previous=\"$arg\"; done\n [ \"$previous2\" = \"https://github.com/example/skills\" ] || exit 9\n cp -R \"" + source + "\" \"$previous\"\n ;;\n*rev-parse*) echo abc123 ;;\n*) exit 8 ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range []string{"@example/skills", "https://github.com/example/skills"} {
+		proposals, err := PrepareAll(t.Context(), source, "")
+		if err != nil || len(proposals) != 1 {
+			t.Fatalf("%s: %v %v", source, proposals, err)
+		}
+		manifest := proposals[0].Manifest
+		if manifest.Source != "https://github.com/example/skills" || manifest.Revision != "abc123" {
+			t.Fatalf("manifest: %#v", manifest)
+		}
+	}
+}

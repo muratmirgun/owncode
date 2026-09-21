@@ -23,7 +23,7 @@ func (loadAgent) IsSessionBusy(string) bool { return true }
 type loadMessages struct{ message.Service }
 
 func (loadMessages) List(_ context.Context, id string) ([]message.Message, error) {
-	return []message.Message{{ID: id + "-user", SessionID: id, Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: strings.Repeat("Inspect the source code and report findings.\n\n", 100)}}}, {ID: id + "-live", SessionID: id, Role: message.Assistant, Parts: []message.ContentPart{message.TextContent{Text: "Initial output"}}}}, nil
+	return []message.Message{{ID: id + "-user", SessionID: id, Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: strings.Repeat("Inspect the source code and report findings.\n\n", 60)}}}, {ID: id + "-live", SessionID: id, Role: message.Assistant, Parts: []message.ContentPart{message.TextContent{Text: "Initial output"}}}}, nil
 }
 
 type loadSessions struct{ session.Service }
@@ -51,7 +51,7 @@ func fourAgentPage(b testing.TB) *chatPage {
 	for y := 1; y < 65; y++ {
 		_, cmd := p.messages.Update(tea.MouseClickMsg{X: 5, Y: y, Button: tea.MouseLeft})
 		if cmd != nil {
-			_ = cmd()
+			p.messages.Update(cmd())
 		}
 		if p.messages.(interface{ ReadOnly() bool }).ReadOnly() {
 			break

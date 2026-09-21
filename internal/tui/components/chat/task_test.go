@@ -43,6 +43,10 @@ func TestTaskCardStaysCompactAndOpensLiveConversation(t *testing.T) {
 	parent := message.Message{ID: "parent", SessionID: "s", Role: message.Assistant, Parts: []message.ContentPart{call}}
 	m.messages = append(m.messages, parent)
 	m.renderView()
+	if cmd := m.takeCommands(); cmd != nil {
+		m.Update(cmd())
+	}
+	m.Update(conversationFrameMsg{owner: m})
 	card := m.uiMessages[len(m.uiMessages)-1]
 	require.Equal(t, 3, card.height)
 	require.Contains(t, ansi.Strip(card.content), "latest")
@@ -51,7 +55,8 @@ func TestTaskCardStaysCompactAndOpensLiveConversation(t *testing.T) {
 	m.viewport.GotoBottom()
 	offset := m.viewport.YOffset()
 	_, cmd := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 2, Y: card.position - offset})
-	require.Nil(t, cmd)
+	require.NotNil(t, cmd)
+	m.Update(cmd())
 	require.True(t, m.ReadOnly())
 	require.Contains(t, ansi.Strip(m.View()), "Back to main chat")
 	child.Parts = []message.ContentPart{message.TextContent{Text: "live update"}}

@@ -2,9 +2,14 @@ package completions
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"github.com/muratmirgun/owncode/internal/skills"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/lithammer/fuzzysearch/fuzzy"
 	"github.com/muratmirgun/owncode/internal/fileutil"
@@ -13,7 +18,8 @@ import (
 )
 
 type filesAndFoldersContextGroup struct {
-	prefix string
+	prefix       string
+	skillEntries []skills.Entry
 }
 
 func (cg *filesAndFoldersContextGroup) GetId() string {
@@ -167,12 +173,31 @@ func (cg *filesAndFoldersContextGroup) getFiles(query string) ([]string, error) 
 }
 
 func (cg *filesAndFoldersContextGroup) GetChildEntries(query string) ([]dialog.CompletionItemI, error) {
+	if query == "" {
+		workdir, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		cg.skillEntries, _ = skills.Discover(ctx, skills.Roots(workdir))
+		cancel()
+	}
+	items := []dialog.CompletionItemI{}
+	for _, entry := range cg.skillEntries {
+		if entry.Disabled || (entry.UserInvocable != nil && !*entry.UserInvocable) {
+			continue
+		}
+		if strings.Contains(strings.ToLower("skill/"+entry.Name+" "+entry.Description), strings.ToLower(query)) {
+			items = append(items, dialog.NewCompletionItem(dialog.CompletionItem{Title: "Skill · " + entry.Name, Value: "@skill/" + entry.Name + " "}))
+		}
+	}
+	if strings.HasPrefix(query, "skill/") {
+		return items, nil
+	}
 	matches, err := cg.getFiles(query)
 	if err != nil {
-		return nil, err
+		return items, err
 	}
-
-	items := make([]dialog.CompletionItemI, 0, len(matches))
 	for _, file := range matches {
 		item := dialog.NewCompletionItem(dialog.CompletionItem{
 			Title: file,

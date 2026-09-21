@@ -218,7 +218,8 @@ func (a *agent) Run(ctx context.Context, sessionID string, content string, attac
 	if !a.provider.Model().SupportsAttachments && attachments != nil {
 		attachments = nil
 	}
-	events := make(chan AgentEvent)
+	// One terminal result must not require an active reader (the TUI uses pubsub).
+	events := make(chan AgentEvent, 1)
 	if a.IsSessionBusy(sessionID) {
 		return nil, ErrSessionBusy
 	}

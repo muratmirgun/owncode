@@ -34,46 +34,8 @@ type Proposal struct {
 // Prepare fetches a source without executing its content. Sources use owner/repo#skill/path.
 func Prepare(ctx context.Context, source, name string) (Proposal, error) {
 	proposal := Proposal{Files: map[string][]byte{}}
-	parts := strings.SplitN(strings.TrimSpace(source), "#", 2)
-	source = parts[0]
-	subdir := "."
-	if len(parts) == 2 {
-		subdir = parts[1]
-	}
-	if !filepath.IsLocal(subdir) {
-		return proposal, fmt.Errorf("skill subdirectory must be relative")
-	}
-	directory := source
-	revision := "local"
-	if strings.HasPrefix(source, "https://") || (!filepath.IsAbs(source) && !strings.HasPrefix(source, ".")) {
-		if !strings.HasPrefix(source, "https://") {
-			source = "https://github.com/" + source
-		}
-		u, err := url.Parse(source)
-		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" {
-			return proposal, fmt.Errorf("use an HTTPS repository URL without credentials")
-		}
-		temp, err := os.MkdirTemp("", "owncode-skill-*")
-		if err != nil {
-			return proposal, err
-		}
-		defer func() { _ = os.RemoveAll(temp) }() // Best-effort cleanup; preserve the primary result.
-		directory = filepath.Join(temp, "repo")
-		ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, "git", "-c", "core.hooksPath=/dev/null", "-c", "protocol.allow=never", "-c", "protocol.https.allow=always", "clone", "--depth=1", "--no-recurse-submodules", "--", source, directory)
-		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + temp, "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull}
-		cmd.WaitDelay = 100 * time.Millisecond
-		if err := cmd.Run(); err != nil {
-			return proposal, fmt.Errorf("fetch skill repository: %w", err)
-		}
-		out, err := exec.CommandContext(ctx, "git", "-C", directory, "rev-parse", "HEAD").Output()
-		if err != nil {
-			return proposal, err
-		}
-		revision = strings.TrimSpace(string(out))
-	}
-	directory, err := filepath.EvalSymlinks(directory)
+	directory, subdir, revision, source, cleanup, err := fetchSource(ctx, source)
+	defer cleanup()
 	if err != nil {
 		return proposal, err
 	}
@@ -361,4 +323,125 @@ func RollbackProposal(ctx context.Context, entry Entry) (Proposal, error) {
 	}
 	proposal.Manifest = manifest
 	return proposal, nil
+}
+
+func fetchSource(ctx context.Context, source string) (directory, subdir, revision, canonical string, cleanup func(), err error) {
+	cleanup = func() {}
+	parts := strings.SplitN(strings.TrimPrefix(strings.TrimSpace(source), "@"), "#", 2)
+	source = parts[0]
+	subdir = "."
+	if len(parts) == 2 {
+		subdir = parts[1]
+	}
+	if !filepath.IsLocal(subdir) {
+		return "", "", "", "", cleanup, fmt.Errorf("skill subdirectory must be relative")
+	}
+	directory = source
+	revision = "local"
+	if strings.HasPrefix(source, "https://") || (!filepath.IsAbs(source) && !strings.HasPrefix(source, ".")) {
+		if !strings.HasPrefix(source, "https://") {
+			source = "https://github.com/" + source
+		}
+		u, err := url.Parse(source)
+		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" {
+			return "", "", "", "", cleanup, fmt.Errorf("use an HTTPS repository URL without credentials")
+		}
+		temp, err := os.MkdirTemp("", "owncode-skill-*")
+		if err != nil {
+			return "", "", "", "", cleanup, err
+		}
+		cleanup = func() { _ = os.RemoveAll(temp) }
+		directory = filepath.Join(temp, "repo")
+		ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "git", "-c", "core.hooksPath=/dev/null", "-c", "protocol.allow=never", "-c", "protocol.https.allow=always", "clone", "--depth=1", "--no-recurse-submodules", "--", source, directory)
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + temp, "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull}
+		cmd.WaitDelay = 100 * time.Millisecond
+		if err := cmd.Run(); err != nil {
+			return "", "", "", "", cleanup, fmt.Errorf("fetch skill repository: %w", err)
+		}
+		out, err := exec.CommandContext(ctx, "git", "-C", directory, "rev-parse", "HEAD").Output()
+		if err != nil {
+			return "", "", "", "", cleanup, err
+		}
+		revision = strings.TrimSpace(string(out))
+	}
+	directory, err = filepath.EvalSymlinks(directory)
+	if err != nil {
+		return "", "", "", "", cleanup, err
+	}
+	return directory, subdir, revision, source, cleanup, nil
+}
+
+// PrepareAll fetches a repository once and prepares all skills, or one selected name.
+func PrepareAll(ctx context.Context, source, name string) ([]Proposal, error) {
+	directory, subdir, revision, canonical, cleanup, err := fetchSource(ctx, source)
+	defer cleanup()
+	if err != nil {
+		return nil, err
+	}
+	proposals := []Proposal{}
+	seen := map[string]bool{}
+	visited := 0
+	totalBytes := 0
+	err = filepath.WalkDir(filepath.Join(directory, subdir), func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		visited++
+		if visited > 20000 {
+			return fmt.Errorf("repository exceeds skill discovery limit")
+		}
+		if d.IsDir() && (d.Name() == ".git" || d.Name() == "node_modules") {
+			return filepath.SkipDir
+		}
+		if d.Name() != "SKILL.md" || !d.Type().IsRegular() {
+			return nil
+		}
+		rel, err := filepath.Rel(directory, filepath.Dir(path))
+		if err != nil {
+			return err
+		}
+		data, err := ReadFile(directory, filepath.Join(rel, "SKILL.md"))
+		if err != nil {
+			return err
+		}
+		entry, _, err := Parse(data)
+		if err != nil {
+			return fmt.Errorf("%s: %w", rel, err)
+		}
+		if name != "" && entry.Name != name {
+			return nil
+		}
+		if seen[entry.Name] {
+			return fmt.Errorf("duplicate skill %s; specify repository#path/to/skill", entry.Name)
+		}
+		if len(proposals) >= 500 {
+			return fmt.Errorf("repository exceeds 500 skills")
+		}
+		proposal, err := Prepare(ctx, directory+"#"+filepath.ToSlash(rel), entry.Name)
+		if err != nil {
+			return err
+		}
+		for _, data := range proposal.Files {
+			totalBytes += len(data)
+		}
+		if totalBytes > 32<<20 {
+			return fmt.Errorf("repository skills exceed 32 MiB installation limit")
+		}
+		proposal.Manifest.Source, proposal.Manifest.Revision = canonical, revision
+		proposals = append(proposals, proposal)
+		seen[entry.Name] = true
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(proposals) == 0 {
+		return nil, fmt.Errorf("no matching skills found")
+	}
+	return proposals, nil
 }

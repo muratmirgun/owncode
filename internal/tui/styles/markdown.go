@@ -15,8 +15,16 @@ func uintPtr(u uint) *uint       { return &u }
 
 // returns a glamour TermRenderer configured with the current theme
 func GetMarkdownRenderer(width int) *glamour.TermRenderer {
+	palette := generateMarkdownStyleConfig()
+	// Glamour custom palettes mutate a process-wide Chroma registry during Render.
+	// Immutable built-in palettes allow background rendering and theme changes.
+	palette.CodeBlock.Chroma = nil
+	palette.CodeBlock.Theme = "github-dark"
+	if !theme.IsDark() {
+		palette.CodeBlock.Theme = "github"
+	}
 	r, _ := glamour.NewTermRenderer(
-		glamour.WithStyles(generateMarkdownStyleConfig()),
+		glamour.WithStyles(palette),
 		glamour.WithWordWrap(width),
 	)
 	return r

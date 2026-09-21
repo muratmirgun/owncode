@@ -42,7 +42,7 @@ type service struct {
 
 func NewService(q db.Querier) Service {
 	return &service{
-		Broker:  pubsub.NewBroker[Message](),
+		Broker:  pubsub.NewSnapshotBroker(func(msg Message) string { return msg.ID }),
 		q:       q,
 		pending: make(map[string]*pendingUpdate),
 	}

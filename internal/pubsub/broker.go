@@ -7,105 +7,153 @@ import (
 
 const bufferSize = 64
 
+type subscription[T any] struct {
+	mu      sync.Mutex
+	queue   []Event[T]
+	updates map[string]int
+	wake    chan struct{}
+	output  chan Event[T]
+	closed  bool
+}
+
+// Broker preserves lifecycle order without holding producers behind a slow UI.
+// Lifecycle events are retained until consumed or the subscription ends.
+// Snapshot brokers coalesce pending updates to bound streaming backlogs.
 type Broker[T any] struct {
-	subs      map[chan Event[T]]struct{}
-	mu        sync.RWMutex
-	done      chan struct{}
-	subCount  int
-	maxEvents int
+	mu                sync.Mutex
+	subs              map[*subscription[T]]struct{}
+	done              chan struct{}
+	once              sync.Once
+	workers           sync.WaitGroup
+	channelBufferSize int
+	key               func(T) string
 }
 
-func NewBroker[T any]() *Broker[T] {
-	return NewBrokerWithOptions[T](bufferSize, 1000)
-}
+func NewBroker[T any]() *Broker[T] { return NewBrokerWithOptions[T](bufferSize, 1000) }
 
-func NewBrokerWithOptions[T any](channelBufferSize, maxEvents int) *Broker[T] {
-	b := &Broker[T]{
-		subs:      make(map[chan Event[T]]struct{}),
-		done:      make(chan struct{}),
-		subCount:  0,
-		maxEvents: maxEvents,
-	}
+// NewSnapshotBroker coalesces complete UpdatedEvent snapshots by identity.
+// Creation and deletion events always form ordering boundaries.
+func NewSnapshotBroker[T any](key func(T) string) *Broker[T] {
+	b := NewBroker[T]()
+	b.key = key
 	return b
 }
 
+// NewBrokerWithOptions configures the delivery buffer. maxEvents is retained for
+// API compatibility; it cannot be a drop limit for reliable lifecycle events.
+func NewBrokerWithOptions[T any](channelBufferSize, maxEvents int) *Broker[T] {
+	return &Broker[T]{subs: make(map[*subscription[T]]struct{}), done: make(chan struct{}), channelBufferSize: max(0, channelBufferSize)}
+}
+
 func (b *Broker[T]) Shutdown() {
-	select {
-	case <-b.done: // Already closed
-		return
-	default:
-		close(b.done)
-	}
-
 	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	for ch := range b.subs {
-		delete(b.subs, ch)
-		close(ch)
-	}
-
-	b.subCount = 0
+	b.once.Do(func() { close(b.done) })
+	b.mu.Unlock()
+	b.workers.Wait()
 }
 
 func (b *Broker[T]) Subscribe(ctx context.Context) <-chan Event[T] {
+	s := &subscription[T]{wake: make(chan struct{}, 1), output: make(chan Event[T], b.channelBufferSize), updates: make(map[string]int)}
 	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	select {
 	case <-b.done:
-		ch := make(chan Event[T])
-		close(ch)
-		return ch
+		close(s.output)
+		b.mu.Unlock()
+		return s.output
 	default:
 	}
-
-	sub := make(chan Event[T], bufferSize)
-	b.subs[sub] = struct{}{}
-	b.subCount++
-
+	b.subs[s] = struct{}{}
+	b.workers.Add(1)
+	b.mu.Unlock()
 	go func() {
-		<-ctx.Done()
-
-		b.mu.Lock()
-		defer b.mu.Unlock()
-
-		select {
-		case <-b.done:
-			return
-		default:
+		defer b.workers.Done()
+		defer func() {
+			b.mu.Lock()
+			delete(b.subs, s)
+			b.mu.Unlock()
+			s.mu.Lock()
+			s.closed = true
+			s.queue = nil
+			clear(s.updates)
+			s.mu.Unlock()
+			close(s.output)
+		}()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-b.done:
+				return
+			case <-s.wake:
+			}
+			for {
+				s.mu.Lock()
+				if len(s.queue) == 0 {
+					s.mu.Unlock()
+					break
+				}
+				// Queue indexes remain stable until a batch is drained.
+				batch := s.queue
+				s.queue = nil
+				clear(s.updates)
+				s.mu.Unlock()
+				for i := range batch {
+					event := batch[i]
+					batch[i] = Event[T]{}
+					select {
+					case <-ctx.Done():
+						return
+					case <-b.done:
+						return
+					case s.output <- event:
+					}
+				}
+			}
 		}
-
-		delete(b.subs, sub)
-		close(sub)
-		b.subCount--
 	}()
-
-	return sub
+	return s.output
 }
 
 func (b *Broker[T]) GetSubscriberCount() int {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return b.subCount
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.subs)
 }
 
 func (b *Broker[T]) Publish(t EventType, payload T) {
-	b.mu.RLock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	select {
 	case <-b.done:
-		b.mu.RUnlock()
 		return
 	default:
 	}
-
-	defer b.mu.RUnlock()
 	event := Event[T]{Type: t, Payload: payload}
-	// Keep the read lock through each nonblocking send. Unsubscribe must not
-	// close a channel between taking a subscriber snapshot and publishing.
-	for sub := range b.subs {
+	for s := range b.subs {
+		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			continue
+		}
+		key := ""
+		if b.key != nil {
+			key = b.key(payload)
+		}
+		if key != "" && t == UpdatedEvent {
+			if i, ok := s.updates[key]; ok {
+				s.queue[i] = event
+				s.mu.Unlock()
+				continue
+			}
+			s.updates[key] = len(s.queue)
+		} else {
+			// Do not move a snapshot past a lifecycle boundary.
+			clear(s.updates)
+		}
+		s.queue = append(s.queue, event)
+		s.mu.Unlock()
 		select {
-		case sub <- event:
+		case s.wake <- struct{}{}:
 		default:
 		}
 	}
