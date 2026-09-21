@@ -210,7 +210,7 @@ func TestJevKeepScoringPreservesAttachmentsAndCalls(t *testing.T) {
 	for range 4 {
 		msgs = append(msgs, message.Message{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "fix scrolling"}}})
 	}
-	scorer := engine.NewReplay(map[string]engine.Score{"m1": {Keep: &engine.KeepScore{Call: .1, Result: .3}}})
+	scorer := engine.NewReplay(map[string]engine.Score{"m2-r0": {Keep: &engine.KeepScore{Call: .1, Result: .3}}})
 	result, err := compactWithJev(t.Context(), msgs, config.JevSettings{}, t.TempDir(), "", scorer)
 	require.NoError(t, err)
 	require.Len(t, result.messages, len(msgs))

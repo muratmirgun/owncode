@@ -12,7 +12,7 @@ import (
 func TestSaveCompactionPreservesConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".owncode.json")
 	require.NoError(t, os.WriteFile(path, []byte(`{"provider":{"custom":{"options":{"apiKey":"test-secret"}}},"futureSetting":{"enabled":true}}`), 0600))
-	settings := CompactionSettings{Method: "jev", Jev: JevSettings{APIKey: "fake-jev-key", TargetTokens: 10000}, Mode: "handoff", Focus: "Keep test failures", Threshold: 80}
+	settings := CompactionSettings{Method: "jev", Jev: JevSettings{SummaryFallback: true, APIKey: "fake-jev-key", TargetTokens: 10000}, Mode: "handoff", Focus: "Keep test failures", Threshold: 80}
 	require.NoError(t, saveCompaction(path, settings, false))
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -33,4 +33,5 @@ func TestCompactionDefaults(t *testing.T) {
 	settings := CompactionSettings{Mode: "unknown", Threshold: 101}
 	require.Equal(t, "balanced", settings.EffectiveMode())
 	require.Equal(t, 95, settings.EffectiveThreshold())
+	require.False(t, settings.Jev.SummaryFallback)
 }
