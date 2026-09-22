@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        width: 340px;
+        padding: 16px;
+        background: #181b22;
+        color: #e7e9ef;
+        font: 14px system-ui;
+      }
+      textarea {
+        width: 100%;
+        height: 90px;
+      }
+      button {
+        margin: 12px 8px 8px 0;
+        padding: 8px;
+      }
+      p {
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>OwnCode Browser</h2>
+    <p>
+      Run browser status in OwnCode. Paste the contents of
+      ~/.owncode/browser-pairing.json here. Keep this token out of chat.
+    </p>
+    <textarea
+      id="pairing"
+      placeholder='{"url":"http://127.0.0.1:...","token":"..."}'
+    ></textarea
+    ><button id="connect">Connect</button
+    ><button id="share">Share this tab</button
+    ><button id="stop">Disconnect</button>
+    <p id="status"></p>
+    <script src="popup.js"></script>
+  </body>
+</html>

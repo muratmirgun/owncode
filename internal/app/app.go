@@ -181,6 +181,9 @@ func (a *App) RunNonInteractive(ctx context.Context, prompt string, outputFormat
 
 // Shutdown performs a clean shutdown of the application
 func (app *App) Shutdown() {
+	if err := tools.CloseAutomation(); err != nil {
+		logging.Error("Close automation", "error", err)
+	}
 	if app.lspCancel != nil {
 		app.lspCancel()
 	}

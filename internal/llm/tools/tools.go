@@ -28,6 +28,7 @@ const (
 )
 
 type ToolResponse struct {
+	Image    []byte           `json:"image,omitempty"`
 	Type     toolResponseType `json:"type"`
 	Content  string           `json:"content"`
 	Metadata string           `json:"metadata,omitempty"`

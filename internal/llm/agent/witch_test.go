@@ -72,7 +72,7 @@ func TestWorkerPermissionsAndOwnership(t *testing.T) {
 	_, err = workspacePath(dir, "../file.go")
 	require.Error(t, err)
 	params.Role = "witch-security"
-	scoped, err = scopeWorkerTools([]tools.BaseTool{edit, bash}, params)
+	scoped, err = scopeWorkerTools([]tools.BaseTool{edit, bash, &workerProbe{name: "browser"}, &workerProbe{name: "computer"}}, params)
 	require.NoError(t, err)
 	require.Len(t, scoped, 1)
 	release, err := reserveWorkerPaths([]string{"one.go"})

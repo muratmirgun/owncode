@@ -32,7 +32,7 @@ type settingsCmp struct {
 	focusDraft    string
 }
 
-var settingsTabs = []string{"Appearance", "Model", "Context", "Connections", "Orchestration"}
+var settingsTabs = []string{"Appearance", "Model", "Context", "Connections", "Orchestration", "Automation"}
 
 func NewSettingsCmp() util.Model     { return &settingsCmp{} }
 func (s *settingsCmp) Init() tea.Cmd { return nil }
@@ -124,6 +124,25 @@ func (s *settingsCmp) rows() []settingRow {
 				settingRow{label, "Reasoning", reasoningLabel(model, agent.ReasoningEffort), "Choose a supported reasoning level for this role. Changes require idle agents.", "witch-reasoning:" + lane},
 				settingRow{label, "Use chat model", "Reset override", "Clear this role's model and reasoning overrides.", "witch-reset:" + lane},
 			)
+		}
+
+	case 5:
+		automation := config.CurrentAutomation()
+		browser, computer := automation.Browser, automation.Computer
+		if browser == "" {
+			browser = "off"
+		}
+		if computer == "" {
+			computer = "off"
+		}
+		rows = []settingRow{
+			{"Browser", "Backend", browser, "Enter cycles Off, Embedded (headless), Chrome, Brave, CDP, and Extension. Changes require idle agents.", "automation-browser"},
+			{"Computer", "Backend", computer, "Enter toggles native macOS control. macOS requires Accessibility, Automation, and Screen Recording permissions.", "automation-computer"},
+			{"Browser", "Executable", automation.Executable, "Optional absolute browser path in global automation.executable. Empty uses browser detection.", ""},
+			{"Browser", "CDP endpoint", automation.CDPURL, "Set global automation.cdpURL to an HTTP browser discovery endpoint. Uses a new tab in that browser.", ""},
+			{"Extension", "Setup", "owncode browser setup", "Extract the bundled extension. Load it in Chrome/Brave, then pair using browser status and ~/.owncode/browser-pairing.json.", ""},
+			{"Isolation", "Managed profiles", "Temporary per agent", "Embedded/Chrome/Brave use installed browsers with isolated profiles. No browser downloads or Node runtime.", ""},
+			{"Control", "Desktop queue", "One action at a time", "Desktop actions share a cancellable queue. Browser sessions remain separate for each worker.", ""},
 		}
 
 	}

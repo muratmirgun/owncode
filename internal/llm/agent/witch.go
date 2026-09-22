@@ -186,7 +186,7 @@ func scopeWorkerTools(available []tools.BaseTool, p AgentParams) ([]tools.BaseTo
 		if name == "sourcegraph" && strings.HasPrefix(p.Role, "witch-") {
 			continue
 		}
-		if (p.Role == "witch-security" || !writableRole(p.Role)) && (name == "bash" || name == "fetch") {
+		if (p.Role == "witch-security" || !writableRole(p.Role)) && (name == "bash" || name == "fetch" || name == "browser" || name == "computer") {
 			continue
 		}
 		selected = append(selected, scopedWorkerTool{BaseTool: tool, root: root, owned: owned})

@@ -160,6 +160,19 @@ Optional skills.sh search requires a valid catalog API token. Authenticated sear
 Git installation works without catalog access.
 See [skills](docs/guide.md#skills-and-installation) and [server configuration](docs/guide.md#mcp-and-language-servers).
 
+## Browser and computer control
+
+Select optional backends in **Settings → Automation**:
+
+- **Embedded:** headless automation using an installed Chromium browser.
+- **Chrome / Brave:** visible, isolated browser sessions.
+- **CDP / Extension:** connect an external browser or explicitly shared tabs.
+- **macOS:** inspect and control native apps through system accessibility APIs.
+
+These adapters need no paid automation service. The built-in browser client needs no Node.js or Python runtime. Both browser and computer access start disabled.
+
+Run `owncode browser setup` to extract the optional Chrome/Brave extension. See the [automation guide](docs/automation.md) for pairing, permissions, screenshots, and current limits.
+
 ## Keyboard controls
 
 | Key | Action |

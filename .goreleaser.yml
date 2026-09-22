@@ -17,6 +17,7 @@ archives:
     files:
       - LICENSE
       - README.md
+      - docs/automation.md
       - docs/witch.md
       - docs/licenses/Witch-LICENSE
 checksum:

@@ -132,7 +132,7 @@ func shakeContext(ctx context.Context, msgs []message.Message, directory string)
 			case message.BinaryContent, message.ImageURLContent:
 				eligible = true
 			case message.ToolResult:
-				eligible = eligible || (i < len(msgs)-4 && len(content.Content) > 4096 && !content.IsError)
+				eligible = eligible || len(content.Image) > 0 || (i < len(msgs)-4 && len(content.Content) > 4096 && !content.IsError)
 			case message.NativeContext:
 				return compactResult{}, fmt.Errorf("shake cannot edit opaque native context; start a new session to remove its images")
 			}
@@ -161,6 +161,11 @@ func shakeContext(ctx context.Context, msgs []message.Message, directory string)
 				result[i].AppendContent("\n" + reference)
 				changed++
 			case message.ToolResult:
+				if len(content.Image) > 0 {
+					content.Image = nil
+					content.Content += "\n" + reference
+					changed++
+				}
 				if i < len(msgs)-4 && len(content.Content) > 4096 && !content.IsError {
 					content.Content = fmt.Sprintf("[Archived tool output: read %s, message %d, part %d]", path, i, j)
 					changed++

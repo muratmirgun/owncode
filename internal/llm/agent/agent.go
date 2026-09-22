@@ -382,7 +382,7 @@ func (a *agent) createUserMessage(ctx context.Context, sessionID, content string
 
 func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msgHistory []message.Message) (message.Message, *message.Message, error) {
 	ctx = context.WithValue(ctx, tools.SessionIDContextKey, sessionID)
-	eventChan := a.provider.StreamResponse(ctx, msgHistory, a.tools)
+	eventChan := a.provider.StreamResponse(ctx, withToolImages(msgHistory, a.provider.Model().SupportsAttachments), a.tools)
 
 	assistantMsg, err := a.messages.Create(ctx, sessionID, message.CreateMessageParams{
 		Role:  message.Assistant,
@@ -487,6 +487,7 @@ func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msg
 			toolResults[i] = message.ToolResult{
 				ToolCallID: toolCall.ID,
 				Content:    toolResult.Content,
+				Image:      toolResult.Image,
 				Metadata:   toolResult.Metadata,
 				IsError:    toolResult.IsError,
 			}

@@ -92,6 +92,7 @@ type ToolCall struct {
 func (ToolCall) isPart() {}
 
 type ToolResult struct {
+	Image      []byte `json:"image,omitempty"`
 	ToolCallID string `json:"tool_call_id"`
 	Name       string `json:"name"`
 	Content    string `json:"content"`
