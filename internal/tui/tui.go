@@ -722,6 +722,32 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, util.ReportInfo("Witch settings saved: " + msg.lane)
 	case dialog.SettingsActionMsg:
+		if msg == "automation-browser" || msg == "automation-computer" {
+			if a.app.CoderAgent.IsBusy() {
+				return a, util.ReportWarn("Wait for active work before changing automation settings")
+			}
+			settings := config.CurrentAutomation()
+			if msg == "automation-browser" {
+				choices := []string{"off", "embedded", "chrome", "brave", "cdp", "extension"}
+				index := 0
+				for i, v := range choices {
+					if v == settings.Browser {
+						index = i
+					}
+				}
+				settings.Browser = choices[(index+1)%len(choices)]
+			} else {
+				if settings.Computer == "macos" {
+					settings.Computer = "off"
+				} else {
+					settings.Computer = "macos"
+				}
+			}
+			if err := config.UpdateAutomation(settings); err != nil {
+				return a, util.ReportError(err)
+			}
+			return a, util.ReportInfo("Automation settings saved")
+		}
 		action, lane, isWitch := strings.Cut(string(msg), ":")
 		if isWitch && strings.HasPrefix(action, "witch-") {
 			if a.app.CoderAgent.IsBusy() {

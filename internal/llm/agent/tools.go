@@ -22,6 +22,7 @@ func CoderAgentTools(
 ) []tools.BaseTool {
 	ctx := context.Background()
 	otherTools := append(GetMcpTools(ctx, permissions), extra...)
+	otherTools = append(otherTools, tools.NewAutomationTools(permissions)...)
 	if lspClients != nil {
 		otherTools = append(otherTools, tools.NewDiagnosticsTool(lspClients), tools.NewLSPTool(lspClients))
 	}
@@ -58,7 +59,7 @@ func TaskAgentTools(lspClients *lsp.Registry) []tools.BaseTool {
 
 // WorkerAgentTools supplies writable workers without recursive delegation or MCP.
 func WorkerAgentTools(permissions permission.Service, history history.Service, clients *lsp.Registry) []tools.BaseTool {
-	return append(TaskAgentTools(clients),
+	return append(append(TaskAgentTools(clients), tools.NewAutomationTools(permissions)...),
 		tools.NewEditTool(clients, permissions, history),
 		tools.NewWriteTool(clients, permissions, history),
 		tools.NewPatchTool(clients, permissions, history),

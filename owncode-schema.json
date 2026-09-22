@@ -251,6 +251,41 @@
       "description": "Compact automatically after a completed turn reaches the context threshold.",
       "type": "boolean"
     },
+    "automation": {
+      "additionalProperties": false,
+      "description": "Global-only optional browser and desktop backends. Both are disabled by default.",
+      "properties": {
+        "browser": {
+          "default": "off",
+          "enum": [
+            "off",
+            "embedded",
+            "chrome",
+            "brave",
+            "cdp",
+            "extension"
+          ],
+          "type": "string"
+        },
+        "cdpURL": {
+          "description": "HTTP discovery endpoint for an explicitly enabled CDP browser.",
+          "type": "string"
+        },
+        "computer": {
+          "default": "off",
+          "enum": [
+            "off",
+            "macos"
+          ],
+          "type": "string"
+        },
+        "executable": {
+          "description": "Optional absolute browser executable path.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "compaction": {
       "additionalProperties": false,
       "properties": {

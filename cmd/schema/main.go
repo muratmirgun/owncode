@@ -46,6 +46,12 @@ func generateSchema() map[string]any {
 	}
 
 	properties := schema["properties"].(map[string]any)
+	properties["automation"] = map[string]any{"type": "object", "additionalProperties": false, "description": "Global-only optional browser and desktop backends. Both are disabled by default.", "properties": map[string]any{
+		"browser":    map[string]any{"type": "string", "enum": []string{"off", "embedded", "chrome", "brave", "cdp", "extension"}, "default": "off"},
+		"computer":   map[string]any{"type": "string", "enum": []string{"off", "macos"}, "default": "off"},
+		"executable": map[string]any{"type": "string", "description": "Optional absolute browser executable path."},
+		"cdpURL":     map[string]any{"type": "string", "description": "HTTP discovery endpoint for an explicitly enabled CDP browser."},
+	}}
 	properties["activeProfile"] = map[string]any{"type": "string", "default": "build", "description": "Built-in build/plan/witch or a configured profile name."}
 	witchLanes := map[string]any{}
 	for _, lane := range config.WitchLanes() {

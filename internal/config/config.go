@@ -87,6 +87,7 @@ type ShellConfig struct {
 
 // Config is the main configuration structure for the application.
 type Config struct {
+	Automation    AutomationSettings                `json:"automation,omitempty"`
 	Extensions    map[string]extension.Config       `json:"extensions,omitempty"`
 	Profiles      map[string]Profile                `json:"profiles,omitempty"`
 	Witch         WitchConfig                       `json:"witch,omitempty"`
@@ -174,6 +175,7 @@ func Load(workingDir string, debug bool) (*Config, error) {
 		return cfg, err
 	}
 
+	SetAutomationSnapshot(cfg.Automation)
 	applyDefaultValues()
 	defaultLevel := slog.LevelInfo
 	if cfg.Debug {
@@ -483,6 +485,7 @@ func mergeLocalConfig(workingDir string) error {
 		}
 		settings := local.AllSettings()
 		delete(settings, "witch")
+		delete(settings, "automation") // Device access is controlled only by global settings.
 		delete(settings, "extensions") // Only global config can enable executable hooks.
 		if err := viper.MergeConfigMap(settings); err != nil {
 			return fmt.Errorf("merge %s.json: %w", name, err)
