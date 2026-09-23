@@ -68,10 +68,11 @@ type agent struct {
 	sessions session.Service
 	messages message.Service
 
-	allTools []tools.BaseTool
-	name     config.AgentName
-	tools    []tools.BaseTool
-	provider provider.Provider
+	allTools        []tools.BaseTool
+	name            config.AgentName
+	tools           []tools.BaseTool
+	provider        provider.Provider
+	reasoningEffort string
 
 	titleProvider     provider.Provider
 	summarizeProvider provider.Provider
@@ -382,19 +383,19 @@ func (a *agent) createUserMessage(ctx context.Context, sessionID, content string
 
 func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msgHistory []message.Message) (message.Message, *message.Message, error) {
 	ctx = context.WithValue(ctx, tools.SessionIDContextKey, sessionID)
-	eventChan := a.provider.StreamResponse(ctx, withToolImages(msgHistory, a.provider.Model().SupportsAttachments), a.tools)
-
 	assistantMsg, err := a.messages.Create(ctx, sessionID, message.CreateMessageParams{
-		Role:  message.Assistant,
-		Parts: []message.ContentPart{},
-		Model: a.provider.Model().ID,
+		Role:            message.Assistant,
+		Parts:           []message.ContentPart{},
+		Model:           a.provider.Model().ID,
+		ReasoningEffort: a.reasoningEffort,
 	})
 	if err != nil {
 		return assistantMsg, nil, fmt.Errorf("failed to create assistant message: %w", err)
 	}
 
-	// Add the session and message ID into the context if needed by tools.
+	// Add the session and message ID into the context before streaming so tools receive it.
 	ctx = context.WithValue(ctx, tools.MessageIDContextKey, assistantMsg.ID)
+	eventChan := a.provider.StreamResponse(ctx, withToolImages(msgHistory, a.provider.Model().SupportsAttachments), a.tools)
 
 	// Process each event in the stream.
 	for event := range eventChan {

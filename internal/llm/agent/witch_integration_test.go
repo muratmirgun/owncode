@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -88,4 +89,18 @@ func TestWitchWorkerSendsRoleModelAndWritesOwnedFile(t *testing.T) {
 	require.Equal(t, "written by worker", string(data))
 	require.EqualValues(t, 2, requests.Load())
 	require.Equal(t, models.ModelID("unused-main"), cfg.Agents[config.AgentCoder].Model)
+	workerID := strings.TrimPrefix(strings.SplitN(reply.Content, "\n", 2)[0], "worker_id: ")
+	workerHistory, err := messages.List(t.Context(), workerID)
+	require.NoError(t, err)
+	var assistantMessages []message.Message
+	for _, msg := range workerHistory {
+		if msg.Role == message.Assistant {
+			assistantMessages = append(assistantMessages, msg)
+		}
+	}
+	require.Len(t, assistantMessages, 2)
+	for _, msg := range assistantMessages {
+		require.Equal(t, models.ModelID("witch-http"), msg.Model)
+		require.Equal(t, "high", msg.ReasoningEffort)
+	}
 }

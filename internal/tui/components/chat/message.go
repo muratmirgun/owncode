@@ -18,6 +18,7 @@ import (
 	"github.com/muratmirgun/owncode/internal/message"
 	"github.com/muratmirgun/owncode/internal/tui/styles"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
+	"github.com/muratmirgun/owncode/internal/tui/util"
 )
 
 type uiMessageType int
@@ -677,11 +678,14 @@ func renderAgentCard(call message.ToolCall, history []message.Message, children 
 		}
 	}
 	latest := "Waiting to start"
+	var latestAssistant *message.Message
 	if len(children) > 0 {
-		for _, child := range children {
+		for i := range children {
+			child := &children[i]
 			if child.Role != message.Assistant {
 				continue
 			}
+			latestAssistant = child
 			if child.Content().Text != "" {
 				latest = child.Content().Text
 			}
@@ -698,8 +702,9 @@ func renderAgentCard(call message.ToolCall, history []message.Message, children 
 	line := func(text string) string { return ansi.Truncate(strings.Join(strings.Fields(text), " "), inner, "…") }
 	title := base.Foreground(t.Primary()).Bold(true).Render(line(role + " · " + params.Prompt))
 	activity := base.Foreground(t.TextMuted()).Render(line("↳ " + latest))
+	metadata := base.Foreground(t.TextMuted()).Render(util.WorkerMetadataLine(latestAssistant, inner))
 	hint := base.Foreground(t.TextMuted()).Render(line(state + " · click to open"))
-	content := base.Width(max(1, width)).Padding(0, 1).Border(lipgloss.ThickBorder(), false, false, false, true).BorderForeground(t.Primary()).Render(strings.Join([]string{title, activity, hint}, "\n"))
+	content := base.Width(max(1, width)).Padding(0, 1).Border(lipgloss.ThickBorder(), false, false, false, true).BorderForeground(t.Primary()).Render(strings.Join([]string{title, activity, metadata, hint}, "\n"))
 	content = styles.Surface(content, t.BackgroundSecondary())
 	return uiMessage{ID: call.ID, taskID: agent.TaskID(call), messageType: toolMessageType, position: position, height: lipgloss.Height(content), content: content}
 }

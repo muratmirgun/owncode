@@ -169,7 +169,7 @@ func (b *agentTool) Run(ctx context.Context, call tools.ToolCall) (tools.ToolRes
 	if err != nil {
 		return tools.ToolResponse{}, err
 	}
-	worker := &agent{Broker: pubsub.NewBroker[AgentEvent](), provider: workerProvider, sessions: b.sessions, messages: b.messages, tools: workerTools, allTools: workerTools, name: config.AgentTask}
+	worker := &agent{Broker: pubsub.NewBroker[AgentEvent](), provider: workerProvider, reasoningEffort: workerProvider.Model().ReasoningLevel(workerConfig.ReasoningEffort), sessions: b.sessions, messages: b.messages, tools: workerTools, allTools: workerTools, name: config.AgentTask}
 	if params.WorkerID == "" {
 		child, err = b.sessions.CreateTaskSession(ctx, call.ID, sessionID, params.Role+": "+params.Prompt)
 		if err != nil {

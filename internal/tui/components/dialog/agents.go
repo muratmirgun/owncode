@@ -33,6 +33,7 @@ type agentRowsMsg struct {
 }
 type agentRow struct {
 	id, title, state, detail string
+	metadata                 *message.Message
 	tokens                   int64
 	cost                     float64
 }
@@ -84,7 +85,7 @@ func (a *agentsCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 		a.rows, a.err = msg.rows, msg.err
 		a.selected = min(a.selected, max(0, len(a.rows)-1))
 		if a.details && len(a.rows) > 0 {
-			a.viewport.SetContent(ansi.Wrap(a.rows[a.selected].detail, a.viewport.Width(), ""))
+			a.viewport.SetContent(ansi.Wrap(agentDetail(a.rows[a.selected]), a.viewport.Width(), ""))
 		}
 		generation := a.generation
 		return a, tea.Tick(time.Second, func(time.Time) tea.Msg { return agentRefreshMsg{generation} })
@@ -148,7 +149,7 @@ func (a *agentsCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 		case "enter":
 			if len(a.rows) > 0 {
 				a.details = true
-				a.viewport.SetContent(ansi.Wrap(a.rows[a.selected].detail, a.viewport.Width(), ""))
+				a.viewport.SetContent(ansi.Wrap(agentDetail(a.rows[a.selected]), a.viewport.Width(), ""))
 				a.viewport.GotoTop()
 			}
 		}
@@ -182,6 +183,13 @@ func (a *agentsCmp) load() tea.Cmd {
 			history, err := a.app.Messages.List(ctx, child.ID)
 			if err != nil {
 				continue
+			}
+			for j := len(history) - 1; j >= 0; j-- {
+				if history[j].Role == message.Assistant {
+					saved := message.Message{Model: history[j].Model, ReasoningEffort: history[j].ReasoningEffort}
+					rows[i].metadata = &saved
+					break
+				}
 			}
 			if rows[i].state == "Working" && len(history) > 0 {
 				last := history[len(history)-1]
@@ -260,7 +268,7 @@ func (a *agentsCmp) View() string {
 	base := styles.BaseStyle().Background(t.BackgroundSecondary())
 	line := func(text string) string { return base.Width(inner).Render(ansi.Truncate(text, inner, "…")) }
 	title := base.Foreground(t.Text()).Bold(true).Render("Agents")
-	subtitle := "Read-only exploration · Results stay linked to this chat"
+	subtitle := "Worker settings · Results stay linked to this chat"
 	body := []string{}
 	if a.composing {
 		return base.Width(width).Padding(1, 2).Render("Worker follow-up\n\n" + a.input.View() + "\n\nenter queue / prepare resume · esc back")
@@ -269,7 +277,7 @@ func (a *agentsCmp) View() string {
 		title += "  /  " + a.rows[a.selected].state
 		body = append(body, a.viewport.View())
 	} else {
-		visible := max(1, height-8)
+		visible := max(1, (height-10)/2)
 		start := max(0, a.selected-visible+1)
 		for i := start; i < min(len(a.rows), start+visible); i++ {
 			row := a.rows[i]
@@ -289,10 +297,10 @@ func (a *agentsCmp) View() string {
 			} else {
 				text = "  " + text
 			}
-			body = append(body, line(text))
+			body = append(body, line(text), line(base.Foreground(t.TextMuted()).Render("  "+util.WorkerMetadataLine(row.metadata, max(1, inner-2)))))
 		}
 		if len(a.rows) == 0 {
-			body = append(body, line("No agents in this chat yet."), line(""), line("Ask OwnCode to delegate a focused search or review."), line("The agent tool uses a separate context and cannot edit files."))
+			body = append(body, line("No agents in this chat yet."), line(""), line("Ask OwnCode to delegate a focused search or review."), line("Each worker uses a separate context and its assigned permissions."))
 		}
 		if a.err != nil {
 			body = []string{line("Could not load agents: " + a.err.Error())}
@@ -308,4 +316,9 @@ func (a *agentsCmp) View() string {
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, line(title), line(base.Foreground(t.TextMuted()).Render(subtitle)), line(""), strings.Join(body, "\n"), line(""), line(base.Foreground(t.TextMuted()).Render(hint)))
 	return styles.Surface(base.Width(width).Padding(1, 2).Border(lipgloss.RoundedBorder()).BorderForeground(t.BorderNormal()).Render(content), t.BackgroundSecondary())
+}
+
+func agentDetail(row agentRow) string {
+	name, effort := util.WorkerMetadata(row.metadata)
+	return "Model: " + name + "\nReasoning: " + effort + "\n\n" + row.detail
 }
