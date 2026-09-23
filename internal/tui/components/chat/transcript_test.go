@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"charm.land/bubbles/v2/viewport"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
 )
@@ -38,4 +39,24 @@ func TestVirtualTranscriptBoundsLargeItem(t *testing.T) {
 	v.SetItems(nil)
 	require.Zero(t, v.YOffset())
 	require.True(t, v.AtBottom())
+}
+
+func TestTranscriptFrameCacheInvalidates(t *testing.T) {
+	v := newTranscriptViewport()
+	v.SetWidth(30)
+	v.SetHeight(2)
+	v.SetItems([]uiMessage{{content: "first\nsecond\nthird"}})
+	first := v.View()
+	require.True(t, v.frameValid)
+	require.Equal(t, first, v.View())
+	v.offset = 1
+	require.NotEqual(t, first, v.View())
+	v.SetItems([]uiMessage{{content: "changed\nsecond\nthird"}})
+	require.False(t, v.frameValid)
+	v.offset = 0
+	require.Contains(t, v.View(), "changed")
+	v.SetWidth(4)
+	require.LessOrEqual(t, lipgloss.Width(v.View()), 4)
+	v.SetHeight(1)
+	require.Equal(t, 1, lipgloss.Height(v.View()))
 }

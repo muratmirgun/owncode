@@ -120,9 +120,10 @@ type Message struct {
 	CreatedAt       int64
 	UpdatedAt       int64
 	// Stream timing and usage travel with live events, outside persisted parts.
-	StreamStartedAt time.Time
-	StreamUpdatedAt time.Time
-	OutputTokens    int64
+	StreamStartedAt  time.Time
+	RequestStartedAt time.Time
+	StreamUpdatedAt  time.Time
+	OutputTokens     int64
 }
 
 func (m *Message) Content() TextContent {

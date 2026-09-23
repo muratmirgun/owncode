@@ -312,3 +312,11 @@ func (c *container) ScrollFrameKey() string {
 	}
 	return ""
 }
+
+// FlushDrafts forwards final persistence to a composer, when present.
+func (c *container) FlushDrafts() error {
+	if child, ok := c.content.(interface{ FlushDrafts() error }); ok {
+		return child.FlushDrafts()
+	}
+	return nil
+}

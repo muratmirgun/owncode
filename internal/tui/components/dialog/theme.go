@@ -1,11 +1,13 @@
 package dialog
 
 import (
+	"strings"
+
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/tui/layout"
-	"github.com/muratmirgun/owncode/internal/tui/styles"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
 	"github.com/muratmirgun/owncode/internal/tui/util"
 )
@@ -123,64 +125,44 @@ func (t *themeDialogCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 }
 
 func (t *themeDialogCmp) View() string {
-	currentTheme := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
-
+	current := theme.CurrentTheme()
+	width := max(1, min(70, t.width-2))
+	inner := max(1, width-4)
+	base := lipgloss.NewStyle().Background(current.BackgroundSecondary()).Foreground(current.Text())
+	line := func(s string) string { return base.Width(inner).Render(ansi.Truncate(s, inner, "…")) }
+	lines := []string{line("Themes"), line("")}
 	if len(t.themes) == 0 {
-		return baseStyle.Padding(1, 2).
-			Border(lipgloss.RoundedBorder()).
-			BorderBackground(currentTheme.Background()).
-			BorderForeground(currentTheme.TextMuted()).
-			Width(40).
-			Render("No themes available")
+		return line("No themes available")
 	}
-
-	// Calculate max width needed for theme names
-	maxWidth := 40 // Minimum width
-	for _, themeName := range t.themes {
-		if len(themeName) > maxWidth-4 { // Account for padding
-			maxWidth = len(themeName) + 4
+	visible := max(1, min(7, t.height-16))
+	start := max(0, t.selectedIdx-visible+1)
+	for i := start; i < min(len(t.themes), start+visible); i++ {
+		name := t.themes[i]
+		marker := "  "
+		if name == t.currentTheme {
+			marker = "● "
 		}
-	}
-
-	maxWidth = max(30, min(maxWidth, t.width-15)) // Limit width to avoid overflow
-
-	// Build the theme list
-	themeItems := make([]string, 0, len(t.themes))
-	for i, themeName := range t.themes {
-		itemStyle := baseStyle.Width(maxWidth)
-
+		style := base
 		if i == t.selectedIdx {
-			itemStyle = itemStyle.
-				Background(currentTheme.Primary()).
-				Foreground(currentTheme.Background()).
-				Bold(true)
+			style = style.Background(current.Primary()).Foreground(current.Background()).Bold(true)
 		}
-
-		themeItems = append(themeItems, itemStyle.Padding(0, 1).Render(themeName))
+		lines = append(lines, style.Width(inner).Render(ansi.Truncate(marker+name, inner, "…")))
 	}
-
-	title := baseStyle.
-		Foreground(currentTheme.Primary()).
-		Bold(true).
-		Width(maxWidth).
-		Padding(0, 1).
-		Render("Select Theme")
-
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		baseStyle.Width(maxWidth).Render(""),
-		baseStyle.Width(maxWidth).Render(lipgloss.JoinVertical(lipgloss.Left, themeItems...)),
-		baseStyle.Width(maxWidth).Render(""),
-	)
-
-	return baseStyle.Padding(1, 2).
-		Border(lipgloss.RoundedBorder()).
-		BorderBackground(currentTheme.Background()).
-		BorderForeground(currentTheme.TextMuted()).
-		Width(lipgloss.Width(content) + 4).
-		Render(content)
+	if t.height >= 20 {
+		name := t.themes[t.selectedIdx]
+		preview := theme.GetTheme(name)
+		sample := lipgloss.NewStyle().Background(preview.Background()).Foreground(preview.Text())
+		sampleLine := func(s string) string { return sample.Width(inner).Render(ansi.Truncate(s, inner, "…")) }
+		lines = append(lines, line(""), line(theme.Description(name)), sampleLine(""),
+			sampleLine(sample.Foreground(preview.Primary()).Bold(true).Render("Build")+sample.Foreground(preview.TextMuted()).Render(" · Model · medium")),
+			sampleLine(sample.Render("Readable text ")+sample.Foreground(preview.TextMuted()).Render("and supporting detail")),
+			sampleLine(sample.Foreground(preview.Success()).Render("✓ Completed  ")+sample.Foreground(preview.Warning()).Render("● Waiting  ")+sample.Foreground(preview.Error()).Render("× Failed")),
+			lipgloss.NewStyle().Width(inner).Background(preview.BackgroundSecondary()).Foreground(preview.Text()).Render(ansi.Truncate(" › Message…", inner, "…")),
+			lipgloss.NewStyle().Width(inner).Background(preview.Primary()).Foreground(preview.Background()).Bold(true).Render(ansi.Truncate(" Selected item", inner, "…")))
+	}
+	lines = append(lines, line(""), line("↑↓ preview · enter apply · esc cancel"))
+	view := base.Width(width).Padding(1, 2).Render(strings.Join(lines, "\n"))
+	return lipgloss.NewStyle().MaxWidth(max(1, t.width)).MaxHeight(max(1, t.height)).Render(view)
 }
 
 func (t *themeDialogCmp) BindingKeys() []key.Binding {

@@ -38,6 +38,8 @@ type uiMessage struct {
 	height      int
 	content     string
 	taskID      string
+	toolID      string
+	parentID    string
 }
 
 func toMarkdown(content string, focused bool, width int) string {
@@ -142,6 +144,7 @@ func renderAssistantMessage(
 	isSummary bool,
 	width int,
 	position int,
+	expandedTools map[string]bool,
 	renderers ...textRenderFunc,
 ) []uiMessage {
 	renderText := textRenderFunc(renderMessage)
@@ -223,7 +226,9 @@ func renderAssistantMessage(
 			false,
 			width,
 			i+1,
+			expandedTools[toolCall.ID],
 		)
+		toolCallContent.parentID = msg.ID
 		messages = append(messages, toolCallContent)
 		position += toolCallContent.height
 		position++ // for the space
@@ -456,14 +461,28 @@ func renderToolParams(paramWidth int, toolCall message.ToolCall) string {
 }
 
 func truncateHeight(content string, height int) string {
-	lines := strings.Split(content, "\n")
+	// A single tool-output line can be arbitrarily large. Bound bytes as well
+	// as rows before syntax highlighting on the UI thread.
+	const maxPreviewBytes = 32 << 10
+	truncated := len(content) > maxPreviewBytes
+	if truncated {
+		content = strings.ToValidUTF8(content[:maxPreviewBytes], "")
+	}
+	lines := strings.SplitN(content, "\n", height+1)
 	if len(lines) > height {
-		return strings.Join(lines[:height], "\n")
+		return strings.Join(lines[:height], "\n") + "\n… additional output omitted"
+	}
+	if truncated {
+		return content + "\n… additional output omitted"
 	}
 	return content
 }
 
-func renderToolResponse(toolCall message.ToolCall, response message.ToolResult, width int) string {
+func renderToolResponse(toolCall message.ToolCall, response message.ToolResult, width int, expanded ...bool) string {
+	limit := maxResultHeight
+	if len(expanded) > 0 && expanded[0] {
+		limit = 200
+	}
 	t := theme.CurrentTheme()
 	baseStyle := styles.BaseStyle()
 
@@ -476,7 +495,7 @@ func renderToolResponse(toolCall message.ToolCall, response message.ToolResult, 
 			Render(errContent)
 	}
 
-	resultContent := truncateHeight(response.Content, maxResultHeight)
+	resultContent := truncateHeight(response.Content, limit)
 	switch toolCall.Name {
 	case agent.AgentToolName:
 		return styles.ForceReplaceBackgroundWithLipgloss(
@@ -527,13 +546,16 @@ func renderToolResponse(toolCall message.ToolCall, response message.ToolResult, 
 	case tools.ViewToolName:
 		metadata := tools.ViewResponseMetadata{}
 		json.Unmarshal([]byte(response.Metadata), &metadata)
+		if metadata.Content == "" {
+			metadata.Content = response.Content
+		}
 		ext := filepath.Ext(metadata.FilePath)
 		if ext == "" {
 			ext = ""
 		} else {
 			ext = strings.ToLower(ext[1:])
 		}
-		resultContent = fmt.Sprintf("```%s\n%s\n```", ext, truncateHeight(metadata.Content, maxResultHeight))
+		resultContent = fmt.Sprintf("```%s\n%s\n```", ext, truncateHeight(metadata.Content, limit))
 		return styles.ForceReplaceBackgroundWithLipgloss(
 			toMarkdown(resultContent, true, width),
 			t.Background(),
@@ -556,6 +578,7 @@ func renderToolMessage(
 	nested bool,
 	width int,
 	position int,
+	expanded ...bool,
 ) uiMessage {
 	if toolCall.Name == agent.AgentToolName {
 		return renderAgentCard(toolCall, allMessages, taskMessages, width, position)
@@ -579,6 +602,13 @@ func renderToolMessage(
 	width--
 
 	response := findToolResponse(toolCall.ID, allMessages)
+	isExpanded := len(expanded) > 0 && expanded[0]
+	collapsible := response != nil && !response.IsError && compactTool(toolCall.Name)
+	if collapsible && !isExpanded {
+		label := "▸ " + toolName(toolCall.Name) + ": " + renderToolParams(max(1, width-8-len(toolName(toolCall.Name))), toolCall)
+		content := baseStyle.Foreground(t.TextMuted()).Width(max(1, width+1)).Render(ansi.Truncate(label, max(1, width+1), "…"))
+		return uiMessage{ID: toolCall.ID, toolID: toolCall.ID, messageType: toolMessageType, position: position, height: 1, content: content}
+	}
 	toolNameText := baseStyle.Foreground(t.TextMuted()).
 		Render(fmt.Sprintf("%s: ", toolName(toolCall.Name)))
 
@@ -601,10 +631,13 @@ func renderToolMessage(
 		return toolMsg
 	}
 
-	params := renderToolParams(width-2-lipgloss.Width(toolNameText), toolCall)
+	if collapsible {
+		toolNameText = baseStyle.Foreground(t.TextMuted()).Render("▾ " + toolName(toolCall.Name) + ": ")
+	}
+	params := renderToolParams(max(1, width-2-lipgloss.Width(toolNameText)), toolCall)
 	responseContent := ""
 	if response != nil {
-		responseContent = renderToolResponse(toolCall, *response, width-2)
+		responseContent = renderToolResponse(toolCall, *response, width-2, isExpanded)
 		responseContent = strings.TrimSuffix(responseContent, "\n")
 	} else {
 		status := "Pending"
@@ -665,12 +698,24 @@ func renderToolMessage(
 		)
 	}
 	toolMsg := uiMessage{
+		ID:          toolCall.ID,
 		messageType: toolMessageType,
 		position:    position,
 		height:      lipgloss.Height(content),
 		content:     styles.Surface(content, t.BackgroundSecondary()),
 	}
+	if collapsible {
+		toolMsg.toolID = toolCall.ID
+	}
 	return toolMsg
+}
+
+func compactTool(name string) bool {
+	switch name {
+	case tools.ViewToolName, tools.GlobToolName, tools.GrepToolName, tools.LSToolName, tools.SourcegraphToolName, tools.FetchToolName:
+		return true
+	}
+	return false
 }
 
 func renderAgentCard(call message.ToolCall, history []message.Message, children []message.Message, width, position int) uiMessage {
@@ -736,9 +781,9 @@ func renderAgentCard(call message.ToolCall, history []message.Message, children 
 
 // Helper function to format the time difference between two Unix timestamps
 func formatTimestampDiff(start, end int64) string {
-	diffSeconds := float64(end-start) / 1000.0 // Convert to seconds
+	diffSeconds := float64(max(0, end-start)) // Persisted timestamps use Unix seconds.
 	if diffSeconds < 1 {
-		return fmt.Sprintf("%dms", int(diffSeconds*1000))
+		return "<1s"
 	}
 	if diffSeconds < 60 {
 		return fmt.Sprintf("%.1fs", diffSeconds)

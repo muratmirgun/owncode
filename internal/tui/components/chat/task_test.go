@@ -161,7 +161,7 @@ func TestReadingChildHistoryDefersStreamWork(t *testing.T) {
 
 func TestLongReasoningHasCompactIndicator(t *testing.T) {
 	msg := message.Message{ID: "thinking", Role: message.Assistant, Parts: []message.ContentPart{message.ReasoningContent{Thinking: strings.Repeat("reasoning content\n", 10000)}}}
-	rows := renderAssistantMessage(msg, 0, nil, nil, "", false, 80, 0)
+	rows := renderAssistantMessage(msg, 0, nil, nil, "", false, 80, 0, nil)
 	require.Len(t, rows, 1)
 	require.Equal(t, 1, rows[0].height)
 	require.Contains(t, ansi.Strip(rows[0].content), "Thinking")

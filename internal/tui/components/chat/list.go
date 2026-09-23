@@ -30,6 +30,11 @@ type cacheItem struct {
 	content []uiMessage
 }
 type messagesCmp struct {
+	messageIndex     map[string]int
+	callParents      map[string]string
+	taskParents      map[string][]string
+	indexedCount     int
+	indexesDirty     bool
 	app              *app.App
 	width, height    int
 	viewport         transcriptViewport
@@ -38,6 +43,7 @@ type messagesCmp struct {
 	uiMessages       []uiMessage
 	currentMsgID     string
 	cachedContent    map[string]cacheItem
+	expandedTools    map[string]bool
 	spinner          spinner.Model
 	rendering        bool
 	attachments      viewport.Model
@@ -45,6 +51,7 @@ type messagesCmp struct {
 	taskHistory      map[string][]message.Message
 	revision         uint64
 	dirty            bool
+	unread           bool
 	framePending     bool
 	animationPending bool
 	pendingCommands  []tea.Cmd
@@ -91,6 +98,9 @@ func (m *messagesCmp) Init() tea.Cmd {
 
 func (m *messagesCmp) Update(msg tea.Msg) (model util.Model, command tea.Cmd) {
 	defer func() {
+		if m.viewport.AtBottom() {
+			m.unread = false
+		}
 		command = tea.Batch(command, m.takeCommands())
 		if m.session.ParentSessionID != "" || m.animationPending {
 			return
@@ -184,11 +194,35 @@ func (m *messagesCmp) Update(msg tea.Msg) (model util.Model, command tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 	case tea.MouseClickMsg:
+		if msg.Button == tea.MouseLeft && msg.X >= 0 && msg.X < m.width && msg.Y == m.viewport.Height() && (m.dirty || m.unread) && !m.viewport.AtBottom() {
+			m.viewport.GotoBottom()
+			m.renderView()
+			return m, nil
+		}
 		if msg.Button != tea.MouseLeft || msg.X < 0 || msg.X >= m.width || msg.Y < 0 || msg.Y >= m.viewport.Height() {
 			return m, nil
 		}
 		row := msg.Y + m.viewport.YOffset()
 		for _, item := range m.uiMessages {
+			if item.toolID != "" && row >= item.position && row < item.position+item.height {
+				if m.expandedTools == nil {
+					m.expandedTools = make(map[string]bool)
+				}
+				m.expandedTools[item.toolID] = !m.expandedTools[item.toolID]
+				delete(m.cachedContent, item.parentID)
+				// Keep the clicked row in place when its card changes height.
+				screenRow := max(0, item.position-m.viewport.YOffset())
+				unread := m.unread
+				m.renderView()
+				for _, updated := range m.uiMessages {
+					if updated.toolID == item.toolID {
+						m.viewport.offset = min(max(0, updated.position-screenRow), m.viewport.maxOffset())
+						break
+					}
+				}
+				m.unread = unread && !m.viewport.AtBottom()
+				return m, nil
+			}
 			if item.taskID != "" && row >= item.position && row < item.position+item.height {
 				return m, m.openTask(item.taskID)
 			}
@@ -205,6 +239,9 @@ func (m *messagesCmp) Update(msg tea.Msg) (model util.Model, command tea.Cmd) {
 		return m, nil
 	case SessionClearedMsg:
 		m.resetLoads()
+		m.indexesDirty = true
+		clear(m.expandedTools)
+		m.unread = false
 		m.uiMessages = nil
 		m.viewport.SetItems(nil)
 		clear(m.cachedContent)
@@ -216,6 +253,7 @@ func (m *messagesCmp) Update(msg tea.Msg) (model util.Model, command tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		if msg.String() == "end" {
+			m.unread = false
 			m.viewport.GotoBottom()
 			if m.dirty {
 				m.renderView()
@@ -265,82 +303,59 @@ func (m *messagesCmp) Update(msg tea.Msg) (model util.Model, command tea.Cmd) {
 		}
 	case pubsub.Event[message.Message]:
 		needsRerender := false
+		m.ensureMessageIndexes()
 		if msg.Payload.SessionID == m.session.ID && msg.Payload.Role == message.Tool {
-			// Incremental results update the call's panel, not just the result message.
-			for _, parent := range m.messages {
-				for _, call := range parent.ToolCalls() {
-					for _, result := range msg.Payload.ToolResults() {
-						if result.ToolCallID == call.ID {
-							delete(m.cachedContent, parent.ID)
-							needsRerender = true
-						}
+			for _, part := range msg.Payload.Parts {
+				if result, ok := part.(message.ToolResult); ok {
+					if parent, found := m.callParents[result.ToolCallID]; found {
+						delete(m.cachedContent, parent)
+						needsRerender = true
 					}
 				}
 			}
 		}
 		if msg.Payload.SessionID != m.session.ID {
-			for _, parent := range m.messages {
-				for _, call := range parent.ToolCalls() {
-					if call.Name == agent.AgentToolName && agent.TaskID(call) == msg.Payload.SessionID {
-						if msg.Payload.Role == message.Assistant {
-							m.taskHistory[agent.TaskID(call)] = []message.Message{msg.Payload}
-						}
-						delete(m.cachedContent, parent.ID)
-						needsRerender = true
-					}
+			for _, parent := range m.taskParents[msg.Payload.SessionID] {
+				if msg.Payload.Role == message.Assistant {
+					m.taskHistory[msg.Payload.SessionID] = []message.Message{msg.Payload}
 				}
-			}
-		}
-		if msg.Type == pubsub.CreatedEvent {
-			if msg.Payload.SessionID == m.session.ID {
-
-				messageExists := false
-				for _, v := range m.messages {
-					if v.ID == msg.Payload.ID {
-						messageExists = true
-						break
-					}
-				}
-
-				if !messageExists {
-					if len(m.messages) > 0 {
-						lastMsgID := m.messages[len(m.messages)-1].ID
-						delete(m.cachedContent, lastMsgID)
-					}
-
-					m.messages = append(m.messages, msg.Payload)
-					delete(m.cachedContent, m.currentMsgID)
-					m.currentMsgID = msg.Payload.ID
-					needsRerender = true
-				}
-			}
-			// There are tool calls from the child task
-			for _, v := range m.messages {
-				for _, c := range v.ToolCalls() {
-					if c.ID == msg.Payload.SessionID {
-						delete(m.cachedContent, v.ID)
-						needsRerender = true
-					}
-				}
-			}
-		} else if msg.Type == pubsub.UpdatedEvent && msg.Payload.SessionID == m.session.ID {
-			found := false
-			for i, v := range m.messages {
-				if v.ID == msg.Payload.ID {
-					m.messages[i] = msg.Payload
-					found = true
-					delete(m.cachedContent, msg.Payload.ID)
-					needsRerender = true
-					break
-				}
-			}
-			if !found && m.rendering {
-				m.messages = append(m.messages, msg.Payload)
+				delete(m.cachedContent, parent)
 				needsRerender = true
 			}
 		}
+		if msg.Payload.SessionID == m.session.ID {
+			index, found := m.messageIndex[msg.Payload.ID]
+			switch {
+			case msg.Type == pubsub.CreatedEvent && !found:
+				if len(m.messages) > 0 {
+					delete(m.cachedContent, m.messages[len(m.messages)-1].ID)
+				}
+				m.messages = append(m.messages, msg.Payload)
+				m.indexMessage(msg.Payload, len(m.messages)-1)
+				m.indexedCount = len(m.messages)
+				delete(m.cachedContent, m.currentMsgID)
+				m.currentMsgID = msg.Payload.ID
+				needsRerender = true
+			case msg.Type == pubsub.UpdatedEvent && found:
+				m.messages[index] = msg.Payload
+				if msg.Payload.Role == message.Assistant {
+					m.indexesDirty = true
+				}
+				delete(m.cachedContent, msg.Payload.ID)
+				needsRerender = true
+			case msg.Type == pubsub.UpdatedEvent && !found && m.rendering:
+				m.messages = append(m.messages, msg.Payload)
+				m.indexMessage(msg.Payload, len(m.messages)-1)
+				m.indexedCount = len(m.messages)
+				needsRerender = true
+			}
+		}
+
 		if needsRerender {
-			if m.child != nil || !m.viewport.AtBottom() || msg.Payload.SessionID != m.session.ID || (msg.Type == pubsub.UpdatedEvent && msg.Payload.Role == message.Assistant) {
+			if !m.viewport.AtBottom() {
+				m.unread = true
+			}
+			if m.child != nil || !m.viewport.AtBottom() || msg.Payload.SessionID != m.session.ID || (msg.Type == pubsub.UpdatedEvent && msg.Payload.Role != message.User) || msg.Payload.Role == message.Tool {
 				cmds = append(cmds, m.queueRender())
 			} else {
 				m.renderView()
@@ -431,6 +446,7 @@ func (m *messagesCmp) renderView() {
 				isSummary,
 				m.width,
 				pos,
+				m.expandedTools,
 				m.textRenderer(msg.ID),
 			)
 			for _, msg := range assistantMessages {
@@ -450,6 +466,7 @@ func (m *messagesCmp) renderView() {
 	}
 	if followBottom {
 		m.viewport.GotoBottom()
+		m.unread = false
 	}
 }
 
@@ -505,45 +522,43 @@ func (m *messagesCmp) View() string {
 	return strings.Join([]string{m.viewport.View(), m.working(), m.help()}, "\n")
 }
 
+// Match result IDs once instead of comparing every call with every result.
+// This status runs during input and animation frames, including long sessions.
 func hasToolsWithoutResponse(messages []message.Message) bool {
-	toolCalls := make([]message.ToolCall, 0)
-	toolResults := make([]message.ToolResult, 0)
-	for _, m := range messages {
-		toolCalls = append(toolCalls, m.ToolCalls()...)
-		toolResults = append(toolResults, m.ToolResults()...)
-	}
-
-	for _, v := range toolCalls {
-		found := false
-		for _, r := range toolResults {
-			if v.ID == r.ToolCallID {
-				found = true
-				break
+	results := make(map[string]struct{})
+	for _, msg := range messages {
+		for _, part := range msg.Parts {
+			if result, ok := part.(message.ToolResult); ok {
+				results[result.ToolCallID] = struct{}{}
 			}
 		}
-		if !found && v.Finished {
-			return true
+	}
+	for _, msg := range messages {
+		for _, part := range msg.Parts {
+			if call, ok := part.(message.ToolCall); ok && call.Finished {
+				if _, found := results[call.ID]; !found {
+					return true
+				}
+			}
 		}
 	}
 	return false
 }
 
 func hasUnfinishedToolCalls(messages []message.Message) bool {
-	toolCalls := make([]message.ToolCall, 0)
-	for _, m := range messages {
-		toolCalls = append(toolCalls, m.ToolCalls()...)
-	}
-	for _, v := range toolCalls {
-		if !v.Finished {
-			return true
+	for _, msg := range messages {
+		for _, part := range msg.Parts {
+			if call, ok := part.(message.ToolCall); ok && !call.Finished {
+				return true
+			}
 		}
 	}
 	return false
 }
 
 func (m *messagesCmp) working() string {
-	if m.dirty && !m.viewport.AtBottom() {
-		return styles.BaseStyle().Foreground(theme.CurrentTheme().TextMuted()).Width(m.width).Render("Reading history · end latest")
+	if (m.dirty || m.unread) && !m.viewport.AtBottom() {
+		return styles.BaseStyle().Foreground(theme.CurrentTheme().TextMuted()).Width(m.width).Render("New messages ↓ · click or End")
 	}
 	if !m.IsAgentWorking() {
 		return ""
@@ -624,6 +639,9 @@ func (m *messagesCmp) SetSession(selected session.Session) tea.Cmd {
 		return nil
 	}
 	m.resetLoads()
+	m.indexesDirty = true
+	clear(m.expandedTools)
+	m.unread = false
 	m.session = selected
 	m.messages = nil
 	m.currentMsgID = ""

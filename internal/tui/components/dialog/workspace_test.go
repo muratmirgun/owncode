@@ -106,3 +106,19 @@ func TestAgentsShowWorkerSettingsAndPreserveListHeight(t *testing.T) {
 		require.Contains(t, ansi.Strip(a.View()), "Reasoning: low")
 	}
 }
+
+func TestAgentQueueAndStableSelection(t *testing.T) {
+	messages := []message.Message{{Role: message.Assistant, Parts: []message.ContentPart{
+		message.ToolCall{ID: "queued", Name: "agent", Input: `{"prompt":"Wait"}`, Finished: true, Execution: "queued"},
+		message.ToolCall{ID: "running", Name: "agent", Input: `{"prompt":"Work"}`, Finished: true, Execution: "running"},
+	}}}
+	rows := collectAgentRows(messages, func(id string) bool { return id == "running" }, true)
+	require.Equal(t, "Queued", rows[0].state)
+	a := NewAgentsCmp(nil).(*agentsCmp)
+	a.rows = rows
+	a.parent = "parent"
+	a.selected = 0
+	a.Update(agentRowsMsg{parent: "parent", rows: rows})
+	require.Equal(t, "running", a.rows[0].id)
+	require.Equal(t, "queued", a.rows[a.selected].id)
+}

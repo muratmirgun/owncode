@@ -504,6 +504,8 @@ go vet ./...
 go test -race ./internal/skills ./internal/recovery ./internal/question ./internal/extension ./internal/llm/agent ./internal/llm/tools ./internal/tui/...
 ```
 
+Read [TUI performance checks](tui-performance.md) for compact cards, scroll controls, and the five-worker benchmark.
+
 Use the stream/scroll fixture to compare terminal performance:
 
 ```bash
@@ -536,3 +538,28 @@ For interface changes, include the terminal size and a screenshot when possible.
 OwnCode uses the [MIT License](../LICENSE).
 Thanks to the original OpenCode contributors and the Charm community for the foundation.
 The original project also credits [isaacphi](https://github.com/isaacphi/mcp-language-server) for LSP work and [adamdottv](https://github.com/adamdottv) for interface direction.
+
+### Agent status, timing, and drafts
+
+`/agents` lists working workers first, followed by queued workers and completed or failed tasks. Each row shows the recorded model, reasoning level, latest activity, and elapsed time. Refresh keeps the selected worker in place.
+
+The composer shows `Main` TPS separately from combined `Σ` TPS when workers stream. `TTFT` measures request start to the first content, reasoning, or tool event. `Tools/wait` includes tool execution and permission waits; it is not model generation time. Live token rates remain estimates.
+
+Text drafts save in the background under `~/.owncode/drafts/`, separated by working directory and session. Switching sessions restores the matching draft. Normal exit saves the final text. After an abrupt termination, the most recent 300 ms may be missing. Pending filesystem work can take longer on a slow disk.
+
+Draft files use private permissions and atomic replacement. Attachments stay available during session switching in the same app run, but restart recovery restores text only. Sending or clearing a draft removes its saved text.
+
+### Theme palettes
+
+![OwnCode palette samples](assets/themes.svg)
+
+Open `/themes` to choose a palette. Use the arrow keys to preview it, Enter to apply, and Escape to cancel. Previewing does not change your saved theme.
+
+| Theme | Palette |
+| --- | --- |
+| OwnCode (default) | Graphite surfaces, warm amber, blue links |
+| Midnight | Deep navy surfaces, ice blue accents |
+| Ember | Warm charcoal surfaces, copper and gold |
+| Grove | Forest surfaces, mint and teal |
+
+Each palette includes light and dark colors. Main text, supporting text, and status colors meet a 4.5:1 contrast ratio on the three base surfaces. Terminal color overrides can change the displayed colors. Existing themes remain available.

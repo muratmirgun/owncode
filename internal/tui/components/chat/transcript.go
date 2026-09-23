@@ -21,8 +21,11 @@ type transcriptItem struct {
 // A scroll never reparses the complete transcript.
 type transcriptViewport struct {
 	viewport.Model
-	items         []transcriptItem
-	total, offset int
+	items                                []transcriptItem
+	total, offset                        int
+	frame                                string
+	frameOffset, frameWidth, frameHeight int
+	frameValid                           bool
 }
 
 func newTranscriptViewport() transcriptViewport {
@@ -30,6 +33,7 @@ func newTranscriptViewport() transcriptViewport {
 }
 
 func (v *transcriptViewport) SetItems(messages []uiMessage) {
+	v.frameValid = false
 	old := v.items
 	v.items = make([]transcriptItem, len(messages))
 	v.total = 0
@@ -84,7 +88,12 @@ func (v transcriptViewport) Update(msg tea.Msg) (transcriptViewport, tea.Cmd) {
 	return v, nil
 }
 
-func (v transcriptViewport) View() string {
+func (v *transcriptViewport) View() string {
+	// Input, worker events, and spinner ticks often leave the visible rows
+	// unchanged. Reuse their frame without allocating another screen buffer.
+	if v.frameValid && v.frameOffset == v.offset && v.frameWidth == v.Width() && v.frameHeight == v.Height() {
+		return v.frame
+	}
 	rows := make([]string, 0, max(0, v.Height()))
 	index := sort.Search(len(v.items), func(i int) bool {
 		return v.items[i].start+len(v.items[i].lines)+1 > v.offset
@@ -104,7 +113,10 @@ func (v transcriptViewport) View() string {
 	}
 	screen := uv.NewScreenBuffer(v.Width(), v.Height())
 	uv.NewStyledString(strings.Join(rows, "\n")).Draw(screen, screen.Bounds())
-	return screen.Render()
+	v.frame = screen.Render()
+	v.frameOffset, v.frameWidth, v.frameHeight = v.offset, v.Width(), v.Height()
+	v.frameValid = true
+	return v.frame
 }
 
 func (v transcriptViewport) GetContent() string {

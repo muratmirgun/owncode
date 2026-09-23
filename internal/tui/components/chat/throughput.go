@@ -27,17 +27,19 @@ func throughputTick() tea.Cmd {
 }
 
 type throughputStats struct {
-	created     time.Time
-	samples     []throughputSample
-	messageID   string
-	started     time.Time
-	tokens      int
-	rate        float64
-	history     []float64
-	total       float64
-	count       int
-	finished    bool
-	exactTokens bool
+	created      time.Time
+	finishedAt   time.Time
+	finishReason message.FinishReason
+	samples      []throughputSample
+	messageID    string
+	started      time.Time
+	tokens       int
+	rate         float64
+	history      []float64
+	total        float64
+	count        int
+	finished     bool
+	exactTokens  bool
 }
 
 // observe estimates tokens from text, reasoning, and tool arguments. The UI marks
@@ -62,6 +64,9 @@ func (s *throughputStats) observe(msg message.Message, now time.Time) {
 	if s.finished {
 		return
 	}
+	if !msg.RequestStartedAt.IsZero() {
+		s.created = msg.RequestStartedAt
+	}
 	chars := utf8.RuneCountInString(msg.Content().Text) + utf8.RuneCountInString(msg.ReasoningContent().Thinking)
 	for _, call := range msg.ToolCalls() {
 		chars += utf8.RuneCountInString(call.Input)
@@ -83,6 +88,8 @@ func (s *throughputStats) observe(msg message.Message, now time.Time) {
 		return
 	}
 	s.finished = true
+	s.finishedAt = now
+	s.finishReason = msg.FinishReason()
 	if msg.OutputTokens > 0 {
 		s.tokens = int(msg.OutputTokens)
 		s.exactTokens = true
@@ -156,16 +163,23 @@ func (m *editorCmp) throughputView() string {
 			name += " · " + effort
 		}
 	}
-	parts := []string{name, "— TPS"}
+	parts := []string{name, "Main — TPS"}
 	if modes := m.executionModes(); modes != "" {
 		parts[0] = modes + " · " + parts[0]
 	}
 	if s := m.throughput[m.session.ID]; s != nil {
 		if s.tokens > 0 {
-			parts[1] = fmt.Sprintf("≈%.0f TPS", s.rate)
+			parts[1] = fmt.Sprintf("Main ≈%.0f TPS", s.rate)
 			if s.exactTokens {
-				parts[1] = fmt.Sprintf("%.0f TPS", s.rate)
+				parts[1] = fmt.Sprintf("Main %.0f TPS", s.rate)
 			}
+		}
+		if !s.started.IsZero() && !s.created.IsZero() {
+			parts = append(parts, fmt.Sprintf("TTFT %.1fs", max(0, s.started.Sub(s.created).Seconds())))
+		}
+		if s.finished && s.finishReason == message.FinishReasonToolUse && m.app.CoderAgent.IsSessionBusy(m.session.ID) {
+			parts[1] = "Main — TPS"
+			parts = append(parts, fmt.Sprintf("Tools/wait %.1fs", max(0, time.Since(s.finishedAt).Seconds())))
 		}
 		if graph := s.sparkline(); graph != "" {
 			parts = append(parts, graph)
@@ -181,8 +195,11 @@ func (m *editorCmp) throughputView() string {
 	}
 	if rate, streams, workers := m.activeThroughput(); workers > 0 {
 		// Parent-only history and token counts are not aggregate measurements.
-		parts = parts[:2]
-		parts[1] = fmt.Sprintf("Σ ≈%.0f TPS (%d streams)", rate, streams)
+		mainRate := "Main — TPS"
+		if stats := m.throughput[m.session.ID]; stats != nil && !stats.finished && stats.tokens > 0 {
+			mainRate = fmt.Sprintf("Main ≈%.0f TPS", stats.rate)
+		}
+		parts = append([]string{parts[0], mainRate, fmt.Sprintf("Σ ≈%.0f TPS (%d streams)", rate, streams)}, parts[2:]...)
 	}
 	// Drop lower priority fields before truncating model, speed, and history.
 	for len(parts) > 3 && ansi.StringWidth(strings.Join(parts, " · ")) > m.width {

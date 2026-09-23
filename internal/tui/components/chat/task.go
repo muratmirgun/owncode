@@ -88,6 +88,7 @@ func (m *messagesCmp) applyHistory(result historyLoadedMsg) tea.Cmd {
 		}
 	}
 	m.session, m.messages = result.session, merged
+	m.indexesDirty = true
 	if len(merged) > 0 {
 		m.currentMsgID = merged[len(merged)-1].ID
 	}

@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="660" viewBox="0 0 1120 660">
+<rect width="1120" height="660" fill="#090C10"/>
+<rect x="20" y="20" width="530" height="300" rx="4" fill="#15171B"/>
+<text x="40" y="55" fill="#EBEDF2" font-size="21" font-family="Menlo,monospace">OwnCode · default</text>
+<rect x="40" y="75" width="490" height="48" rx="4" fill="#202329"/>
+<rect x="40" y="75" width="3" height="48" rx="4" fill="#F2BC83"/>
+<text x="56" y="104" fill="#EBEDF2" font-size="16" font-family="Menlo,monospace">Help me improve this project.</text>
+<text x="40" y="153" fill="#F2BC83" font-size="16" font-family="Menlo,monospace">Build</text>
+<text x="110" y="153" fill="#A5ACB8" font-size="16" font-family="Menlo,monospace">· Qwen3.8 · medium</text>
+<text x="40" y="184" fill="#EBEDF2" font-size="16" font-family="Menlo,monospace">Readable content, clear hierarchy.</text>
+<text x="40" y="214" fill="#94D8AE" font-size="16" font-family="Menlo,monospace">✓ Done</text>
+<text x="180" y="214" fill="#E7C875" font-size="16" font-family="Menlo,monospace">● Waiting</text>
+<text x="355" y="214" fill="#FF929B" font-size="16" font-family="Menlo,monospace">× Error</text>
+<rect x="40" y="232" width="490" height="35" rx="4" fill="#F2BC83"/>
+<text x="54" y="255" fill="#15171B" font-size="16" font-family="Menlo,monospace">Selected command</text>
+<text x="40" y="300" fill="#A5ACB8" font-size="14" font-family="Menlo,monospace">/ commands    tab agents    esc cancel</text>
+<rect x="570" y="20" width="530" height="300" rx="4" fill="#101723"/>
+<text x="590" y="55" fill="#E6EDF7" font-size="21" font-family="Menlo,monospace">Midnight</text>
+<rect x="590" y="75" width="490" height="48" rx="4" fill="#1B2636"/>
+<rect x="590" y="75" width="3" height="48" rx="4" fill="#88CFFF"/>
+<text x="606" y="104" fill="#E6EDF7" font-size="16" font-family="Menlo,monospace">Help me improve this project.</text>
+<text x="590" y="153" fill="#88CFFF" font-size="16" font-family="Menlo,monospace">Build</text>
+<text x="660" y="153" fill="#A1B2C8" font-size="16" font-family="Menlo,monospace">· Qwen3.8 · medium</text>
+<text x="590" y="184" fill="#E6EDF7" font-size="16" font-family="Menlo,monospace">Readable content, clear hierarchy.</text>
+<text x="590" y="214" fill="#8CDBBD" font-size="16" font-family="Menlo,monospace">✓ Done</text>
+<text x="730" y="214" fill="#EBD08F" font-size="16" font-family="Menlo,monospace">● Waiting</text>
+<text x="905" y="214" fill="#FF97A6" font-size="16" font-family="Menlo,monospace">× Error</text>
+<rect x="590" y="232" width="490" height="35" rx="4" fill="#88CFFF"/>
+<text x="604" y="255" fill="#101723" font-size="16" font-family="Menlo,monospace">Selected command</text>
+<text x="590" y="300" fill="#A1B2C8" font-size="14" font-family="Menlo,monospace">/ commands    tab agents    esc cancel</text>
+<rect x="20" y="340" width="530" height="300" rx="4" fill="#1C1715"/>
+<text x="40" y="375" fill="#F2E7DF" font-size="21" font-family="Menlo,monospace">Ember</text>
+<rect x="40" y="395" width="490" height="48" rx="4" fill="#2B2320"/>
+<rect x="40" y="395" width="3" height="48" rx="4" fill="#F0AE83"/>
+<text x="56" y="424" fill="#F2E7DF" font-size="16" font-family="Menlo,monospace">Help me improve this project.</text>
+<text x="40" y="473" fill="#F0AE83" font-size="16" font-family="Menlo,monospace">Build</text>
+<text x="110" y="473" fill="#BCABA0" font-size="16" font-family="Menlo,monospace">· Qwen3.8 · medium</text>
+<text x="40" y="504" fill="#F2E7DF" font-size="16" font-family="Menlo,monospace">Readable content, clear hierarchy.</text>
+<text x="40" y="534" fill="#BCD49A" font-size="16" font-family="Menlo,monospace">✓ Done</text>
+<text x="180" y="534" fill="#EACA82" font-size="16" font-family="Menlo,monospace">● Waiting</text>
+<text x="355" y="534" fill="#FF9690" font-size="16" font-family="Menlo,monospace">× Error</text>
+<rect x="40" y="552" width="490" height="35" rx="4" fill="#F0AE83"/>
+<text x="54" y="575" fill="#1C1715" font-size="16" font-family="Menlo,monospace">Selected command</text>
+<text x="40" y="620" fill="#BCABA0" font-size="14" font-family="Menlo,monospace">/ commands    tab agents    esc cancel</text>
+<rect x="570" y="340" width="530" height="300" rx="4" fill="#111C19"/>
+<text x="590" y="375" fill="#E5EFE7" font-size="21" font-family="Menlo,monospace">Grove</text>
+<rect x="590" y="395" width="490" height="48" rx="4" fill="#1C2B25"/>
+<rect x="590" y="395" width="3" height="48" rx="4" fill="#95D5AE"/>
+<text x="606" y="424" fill="#E5EFE7" font-size="16" font-family="Menlo,monospace">Help me improve this project.</text>
+<text x="590" y="473" fill="#95D5AE" font-size="16" font-family="Menlo,monospace">Build</text>
+<text x="660" y="473" fill="#A2B8AB" font-size="16" font-family="Menlo,monospace">· Qwen3.8 · medium</text>
+<text x="590" y="504" fill="#E5EFE7" font-size="16" font-family="Menlo,monospace">Readable content, clear hierarchy.</text>
+<text x="590" y="534" fill="#95D5AE" font-size="16" font-family="Menlo,monospace">✓ Done</text>
+<text x="730" y="534" fill="#E1C981" font-size="16" font-family="Menlo,monospace">● Waiting</text>
+<text x="905" y="534" fill="#F59D9A" font-size="16" font-family="Menlo,monospace">× Error</text>
+<rect x="590" y="552" width="490" height="35" rx="4" fill="#95D5AE"/>
+<text x="604" y="575" fill="#111C19" font-size="16" font-family="Menlo,monospace">Selected command</text>
+<text x="590" y="620" fill="#A2B8AB" font-size="14" font-family="Menlo,monospace">/ commands    tab agents    esc cancel</text>
+</svg>

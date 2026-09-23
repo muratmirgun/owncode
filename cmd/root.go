@@ -186,6 +186,11 @@ to assist developers in writing, debugging, and understanding code directly from
 
 		// Run the TUI
 		result, err := program.Run()
+		if drafts, ok := result.(interface{ FlushDrafts() error }); ok {
+			if saveErr := drafts.FlushDrafts(); saveErr != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Could not save draft: %v\n", saveErr)
+			}
+		}
 		cleanup()
 
 		if err != nil {
