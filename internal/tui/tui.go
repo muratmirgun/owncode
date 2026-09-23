@@ -266,6 +266,10 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 	switch msg := msg.(type) {
+	case dialog.RefreshModelsMsg:
+		return a.refreshModels(msg.Provider)
+	case modelCatalogResultMsg:
+		return a.applyModelCatalog(msg)
 	case dialog.CloseConnectMsg:
 		a.showConnect = false
 		return a, nil

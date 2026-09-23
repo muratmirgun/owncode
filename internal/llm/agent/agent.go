@@ -411,7 +411,44 @@ func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msg
 
 	toolResults := make([]message.ToolResult, len(assistantMsg.ToolCalls()))
 	toolCalls := assistantMsg.ToolCalls()
+	var resultMessage *message.Message
+	flushResults := func() error {
+		parts := make([]message.ContentPart, 0, len(toolResults))
+		for _, result := range toolResults {
+			if result.ToolCallID != "" {
+				parts = append(parts, result)
+			}
+		}
+		if len(parts) == 0 {
+			return nil
+		}
+		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if resultMessage == nil {
+			msg, err := a.messages.Create(flushCtx, sessionID, message.CreateMessageParams{Role: message.Tool, Parts: parts})
+			if err != nil {
+				return err
+			}
+			resultMessage = &msg
+			return nil
+		}
+		resultMessage.Parts = parts
+		resultMessage.AddFinish(message.FinishReasonEndTurn)
+		return a.messages.Update(flushCtx, *resultMessage)
+	}
+	for i := range toolCalls {
+		toolCalls[i].Execution = "queued"
+	}
 	for i := 0; i < len(toolCalls); i++ {
+		// Publish completed calls before starting the next potentially slow tool.
+		if err := flushResults(); err != nil {
+			return assistantMsg, resultMessage, fmt.Errorf("save tool progress: %w", err)
+		}
+		toolCalls[i].Execution = "running"
+		assistantMsg.SetToolCalls(toolCalls)
+		if err := a.messages.Update(ctx, assistantMsg); err != nil && ctx.Err() == nil {
+			return assistantMsg, resultMessage, err
+		}
 		toolCall := toolCalls[i]
 		select {
 		case <-ctx.Done():
@@ -499,22 +536,10 @@ func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msg
 		}
 	}
 out:
-	if len(toolResults) == 0 {
-		return assistantMsg, nil, nil
+	if err := flushResults(); err != nil {
+		return assistantMsg, resultMessage, fmt.Errorf("save tool results: %w", err)
 	}
-	parts := make([]message.ContentPart, 0)
-	for _, tr := range toolResults {
-		parts = append(parts, tr)
-	}
-	msg, err := a.messages.Create(context.Background(), assistantMsg.SessionID, message.CreateMessageParams{
-		Role:  message.Tool,
-		Parts: parts,
-	})
-	if err != nil {
-		return assistantMsg, nil, fmt.Errorf("failed to create cancelled tool message: %w", err)
-	}
-
-	return assistantMsg, &msg, err
+	return assistantMsg, resultMessage, nil
 }
 
 func (a *agent) finishMessage(ctx context.Context, msg *message.Message, finishReson message.FinishReason) {

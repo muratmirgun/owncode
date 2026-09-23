@@ -224,3 +224,23 @@ func TestAgentCardLegacyReasoningModelWithoutSavedEffortIsUnavailable(t *testing
 	require.Contains(t, card, "Model: Claude 3.7 Sonnet · Effort: —")
 	require.NotContains(t, card, "Effort: n/a")
 }
+
+func TestAgentCardDoesNotCallStartedWorkerQueued(t *testing.T) {
+	call := message.ToolCall{ID: "started", Name: agent.AgentToolName, Input: `{"prompt":"Read"}`, Finished: true}
+	child := message.Message{Role: message.Assistant, Model: models.ModelID("fixture")}
+	view := ansi.Strip(renderAgentCard(call, nil, []message.Message{child}, 100, 0).content)
+	require.NotContains(t, view, "Waiting to start")
+	require.Contains(t, view, "Waiting for model")
+	child.AddFinish(message.FinishReasonEndTurn)
+	view = ansi.Strip(renderAgentCard(call, nil, []message.Message{child}, 100, 0).content)
+	require.Contains(t, view, "Done · click to open")
+}
+
+func TestToolPanelsDistinguishQueueAndExecution(t *testing.T) {
+	for _, tc := range []struct{ status, want string }{{"queued", "Queued · waiting for earlier tools"}, {"running", "Reading"}} {
+		call := message.ToolCall{ID: "read", Name: "view", Input: `{"file_path":"README.md"}`, Finished: true, Execution: tc.status}
+		view := ansi.Strip(renderToolMessage(call, nil, nil, "", false, 100, 0).content)
+		require.Contains(t, view, tc.want)
+		require.NotContains(t, view, "Waiting for response")
+	}
+}

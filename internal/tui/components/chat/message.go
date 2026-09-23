@@ -607,11 +607,26 @@ func renderToolMessage(
 		responseContent = renderToolResponse(toolCall, *response, width-2)
 		responseContent = strings.TrimSuffix(responseContent, "\n")
 	} else {
+		status := "Pending"
+		switch toolCall.Execution {
+		case "queued":
+			status = "Queued · waiting for earlier tools"
+		case "running":
+			status = getToolAction(toolCall.Name)
+			switch toolCall.Name {
+			case tools.BashToolName:
+				status = "Running command..."
+			case tools.EditToolName, tools.WriteToolName, tools.PatchToolName:
+				status = "Applying changes..."
+			case tools.FetchToolName:
+				status = "Fetching content..."
+			}
+		}
 		responseContent = baseStyle.
 			Italic(true).
 			Width(width - 2).
 			Foreground(t.TextMuted()).
-			Render("Waiting for response...")
+			Render(status)
 	}
 
 	parts := []string{}
@@ -677,7 +692,10 @@ func renderAgentCard(call message.ToolCall, history []message.Message, children 
 			state = "Failed"
 		}
 	}
-	latest := "Waiting to start"
+	latest := "Queued"
+	if state == "Working" {
+		latest = "Waiting for model…"
+	}
 	var latestAssistant *message.Message
 	if len(children) > 0 {
 		for i := range children {
@@ -686,6 +704,7 @@ func renderAgentCard(call message.ToolCall, history []message.Message, children 
 				continue
 			}
 			latestAssistant = child
+			latest = "Waiting for model…"
 			if child.Content().Text != "" {
 				latest = child.Content().Text
 			}
@@ -696,6 +715,12 @@ func renderAgentCard(call message.ToolCall, history []message.Message, children 
 				latest = toolName(tool.Name) + " · " + renderToolParams(max(1, width-8), tool)
 			}
 		}
+	}
+	if latestAssistant != nil && state == "Working" && latestAssistant.IsFinished() && latestAssistant.FinishReason() == message.FinishReasonEndTurn {
+		state = "Finishing"
+	}
+	if result == nil && params.WorkerID == "" && latestAssistant != nil && !agent.IsTaskRunning(agent.TaskID(call)) && latestAssistant.FinishReason() == message.FinishReasonEndTurn {
+		state = "Done"
 	}
 	inner := max(1, width-3)
 	base := styles.BaseStyle().Background(t.BackgroundSecondary())

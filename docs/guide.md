@@ -132,6 +132,8 @@ Your terminal controls the font family and size.
 Use `/settings`, `/connect`, `/models`, `/themes`, `/sessions`, `/new`, `/compact`, `/agents`, or `/help`.
 
 In model search, `Ctrl+F` or `F6` toggles a favorite. `Ctrl+A` or `F5` opens provider connections.
+Use `Ctrl+R` or `F7` to refresh the highlighted model's connected ChatGPT or Claude account.
+Refresh preserves your active model and search. It requires idle agents and keeps the previous list if the request fails.
 Recalled prompts remain editable. Prompt recall does not restore attachments.
 
 Permission requests appear above the message input:
