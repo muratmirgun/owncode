@@ -265,6 +265,19 @@ func (m *messagesCmp) Update(msg tea.Msg) (model util.Model, command tea.Cmd) {
 		}
 	case pubsub.Event[message.Message]:
 		needsRerender := false
+		if msg.Payload.SessionID == m.session.ID && msg.Payload.Role == message.Tool {
+			// Incremental results update the call's panel, not just the result message.
+			for _, parent := range m.messages {
+				for _, call := range parent.ToolCalls() {
+					for _, result := range msg.Payload.ToolResults() {
+						if result.ToolCallID == call.ID {
+							delete(m.cachedContent, parent.ID)
+							needsRerender = true
+						}
+					}
+				}
+			}
+		}
 		if msg.Payload.SessionID != m.session.ID {
 			for _, parent := range m.messages {
 				for _, call := range parent.ToolCalls() {

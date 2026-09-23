@@ -89,6 +89,28 @@ func Discover(ctx context.Context, id string, connection Connection) ([]Model, e
 	return discover(ctx, authHTTPClient(), id, connection)
 }
 
+// RefreshModels retrieves the saved account's catalog with current credentials.
+// The caller saves the returned connection after checking that the app is idle.
+func RefreshModels(ctx context.Context, id string) (Connection, error) {
+	connections, err := Connections()
+	if err != nil {
+		return Connection{}, err
+	}
+	connection, ok := connections[id]
+	if !ok {
+		return Connection{}, fmt.Errorf("provider is disconnected; open /connect")
+	}
+	if id == ChatGPT {
+		token, err := currentToken(ctx)
+		if err != nil {
+			return Connection{}, err
+		}
+		connection.Token = &token
+	}
+	connection.Models, err = Discover(ctx, id, connection)
+	return connection, err
+}
+
 func discover(ctx context.Context, client *http.Client, id string, c Connection) ([]Model, error) {
 	endpoint := "https://api.anthropic.com/v1/models?limit=100"
 	if id == ChatGPT {

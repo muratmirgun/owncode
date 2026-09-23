@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muratmirgun/owncode/internal/auth"
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/llm/models"
 	"github.com/muratmirgun/owncode/internal/tui/layout"
@@ -33,6 +34,12 @@ type CloseModelDialogMsg struct{}
 // ConnectModelProviderMsg opens provider setup from the picker.
 type ConnectModelProviderMsg struct{}
 
+// RefreshModelsMsg requests a fresh catalog for the selected provider.
+type RefreshModelsMsg struct{ Provider string }
+
+// ModelsRefreshedMsg completes a catalog refresh without changing the selected model.
+type ModelsRefreshedMsg struct{ Err error }
+
 // ModelDialog is the searchable model picker.
 type ModelDialog interface {
 	util.Model
@@ -45,6 +52,8 @@ type modelRow struct {
 }
 type modelDialogCmp struct {
 	title                                    string
+	refreshing                               bool
+	refreshStatus                            string
 	catalog                                  []models.Model
 	rows                                     []modelRow
 	active                                   models.ModelID
@@ -66,10 +75,27 @@ func NewModelDialogCmp() ModelDialog {
 func (m *modelDialogCmp) Init() tea.Cmd {
 	cfg := config.Get()
 	m.active = GetSelectedModel(cfg).ID
+	m.loadCatalog()
+	var err error
+	m.prefs, err = loadModelPreferences()
+	m.rebuild(m.active)
+	if err != nil {
+		return util.ReportWarn("Could not load model preferences: " + err.Error())
+	}
+	return nil
+}
+
+func (m *modelDialogCmp) loadCatalog() {
+	cfg := config.Get()
 	m.catalog = nil
 	for _, model := range models.SupportedModels {
 		provider, ok := cfg.Providers[model.Provider]
 		if ok && !provider.Disabled {
+			if model.Custom && (model.Provider == auth.ChatGPT || model.Provider == auth.Claude) {
+				if _, exists := provider.Models[model.APIModel]; !exists {
+					continue
+				}
+			}
 			m.catalog = append(m.catalog, model)
 		}
 	}
@@ -82,13 +108,6 @@ func (m *modelDialogCmp) Init() tea.Cmd {
 		}
 		return strings.Compare(string(a.ID), string(b.ID))
 	})
-	var err error
-	m.prefs, err = loadModelPreferences()
-	m.rebuild(m.active)
-	if err != nil {
-		return util.ReportWarn("Could not load model preferences: " + err.Error())
-	}
-	return nil
 }
 
 func (m *modelDialogCmp) rebuild(preferred models.ModelID) {
@@ -175,6 +194,20 @@ func (m *modelDialogCmp) move(delta int) {
 }
 func (m *modelDialogCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case ModelsRefreshedMsg:
+		m.refreshing = false
+		if msg.Err != nil {
+			m.refreshStatus = msg.Err.Error()
+			return m, nil
+		}
+		preferred := m.active
+		if m.selectedIdx >= 0 && m.selectedIdx < len(m.rows) {
+			preferred = m.rows[m.selectedIdx].model.ID
+		}
+		m.loadCatalog()
+		m.rebuild(preferred)
+		m.refreshStatus = "Models refreshed"
+		return m, nil
 	case ModelFocusMsg:
 		m.active = msg.ID
 		m.title = msg.Title
@@ -189,6 +222,21 @@ func (m *modelDialogCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 		switch msg.String() {
 		case "esc", "ctrl+o", "f2":
 			return m, util.CmdHandler(CloseModelDialogMsg{})
+		case "ctrl+r", "f7":
+			if m.refreshing {
+				return m, nil
+			}
+			if m.selectedIdx < 0 || m.selectedIdx >= len(m.rows) {
+				return m, nil
+			}
+			provider := string(m.rows[m.selectedIdx].model.Provider)
+			if provider != auth.ChatGPT && provider != auth.Claude {
+				m.refreshStatus = "Refresh is available for connected ChatGPT and Claude accounts"
+				return m, nil
+			}
+			m.refreshing = true
+			m.refreshStatus = "Refreshing " + providerLabel(models.ModelProvider(provider)) + "…"
+			return m, util.CmdHandler(RefreshModelsMsg{Provider: provider})
 		case "ctrl+a", "f5":
 			return m, util.CmdHandler(ConnectModelProviderMsg{})
 		case "up", "ctrl+p":
@@ -296,7 +344,11 @@ func (m *modelDialogCmp) View() string {
 	if len(m.rows) > m.listHeight() {
 		position = fmt.Sprintf(" · %d/%d", m.scrollOffset+1, len(m.rows))
 	}
-	lines = append(lines, line(""), line(muted.Render("↑↓ select · enter confirm"+position)), line(base.Render("Connect provider ")+muted.Render("F5")+base.Render("  Favorite ")+muted.Render("F6")))
+	status := "↑↓ select · enter confirm" + position
+	if m.refreshStatus != "" {
+		status = m.refreshStatus
+	}
+	lines = append(lines, line(""), line(muted.Render(status)), line(base.Render("Connect provider ")+muted.Render("F5")+base.Render("  Favorite ")+muted.Render("F6")+base.Render("  Refresh ")+muted.Render("F7 / ctrl+r")))
 	view := base.Width(width).Padding(1, 2).Render(strings.Join(lines, "\n"))
 	view = styles.Surface(view, t.BackgroundSecondary())
 	// Keep even very small terminals within their available canvas.
@@ -305,6 +357,7 @@ func (m *modelDialogCmp) View() string {
 
 func (m *modelDialogCmp) BindingKeys() []key.Binding {
 	return []key.Binding{
+		key.NewBinding(key.WithKeys("ctrl+r", "f7"), key.WithHelp("f7 / ctrl+r", "refresh models")),
 		key.NewBinding(key.WithKeys("ctrl+a", "f5"), key.WithHelp("f5 / ctrl+a", "connect provider")),
 		key.NewBinding(key.WithKeys("ctrl+f", "f6"), key.WithHelp("f6 / ctrl+f", "favorite")),
 		key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close")),

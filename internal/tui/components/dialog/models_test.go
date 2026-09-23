@@ -92,3 +92,21 @@ func TestModelPickerBoundsAndScroll(t *testing.T) {
 		require.LessOrEqual(t, lipgloss.Height(view), size[1])
 	}
 }
+
+func TestRefreshModelsShortcutAndFailure(t *testing.T) {
+	m := pickerFixture()
+	m.rebuild("gpt")
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	require.Equal(t, RefreshModelsMsg{Provider: "chatgpt"}, cmd())
+	require.True(t, m.refreshing)
+	require.Contains(t, ansi.Strip(m.View()), "Refreshing")
+	_, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyF7})
+	require.Nil(t, cmd, "duplicate refresh must not start another request")
+	m.Update(ModelsRefreshedMsg{Err: fmt.Errorf("connection failed")})
+	require.False(t, m.refreshing)
+	require.Len(t, m.catalog, 2)
+	require.Equal(t, models.ModelID("gpt"), m.rows[m.selectedIdx].model.ID)
+	require.Contains(t, ansi.Strip(m.View()), "connection failed")
+	_, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyF7})
+	require.Equal(t, RefreshModelsMsg{Provider: "chatgpt"}, cmd())
+}
