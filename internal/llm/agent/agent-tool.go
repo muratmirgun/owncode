@@ -10,6 +10,7 @@ import (
 
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/llm/tools"
+	"github.com/muratmirgun/owncode/internal/llm/tools/shell"
 	"github.com/muratmirgun/owncode/internal/logging"
 	"github.com/muratmirgun/owncode/internal/lsp"
 	"github.com/muratmirgun/owncode/internal/message"
@@ -187,6 +188,7 @@ func (b *agentTool) Run(ctx context.Context, call tools.ToolCall) (tools.ToolRes
 		return tools.NewTextErrorResponse("worker is already running"), nil
 	}
 	defer runningTasks.Delete(child.ID)
+	defer shell.CloseSessionShell(child.ID)
 	inbox := &taskInbox{}
 	taskInboxes.Store(child.ID, inbox)
 	defer taskInboxes.Delete(child.ID)

@@ -190,6 +190,12 @@ func (o *openaiClient) preparedParams(messages []openai.ChatCompletionMessagePar
 		extra = map[string]any{}
 	}
 	delete(extra, "native_compaction")
+	if config.SupportsFast(o.providerOptions.model) {
+		extra["service_tier"] = "default"
+		if config.FastMode() {
+			extra["service_tier"] = "priority"
+		}
+	}
 	if effort := o.providerOptions.model.ReasoningLevel(o.options.reasoningEffort); effort != "" {
 		if effort == "on" || effort == "off" {
 			if kwargs, ok := extra["chat_template_kwargs"].(map[string]any); ok {

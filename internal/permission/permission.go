@@ -44,8 +44,10 @@ type Service interface {
 
 type permissionService struct {
 	*pubsub.Broker[PermissionRequest]
-	mu   sync.Mutex
-	gate chan struct{}
+	mu      sync.Mutex
+	gate    chan struct{}
+	yolo    bool
+	changed chan struct{}
 
 	sessionPermissions  []PermissionRequest
 	pendingRequests     sync.Map
@@ -87,12 +89,6 @@ func Request(ctx context.Context, service Service, opts CreatePermissionRequest)
 
 // RequestContext serializes prompts and releases pending requests on cancellation.
 func (s *permissionService) RequestContext(ctx context.Context, opts CreatePermissionRequest) bool {
-	select {
-	case s.gate <- struct{}{}:
-	case <-ctx.Done():
-		return false
-	}
-	defer func() { <-s.gate }()
 	if ctx.Err() != nil {
 		return false
 	}
@@ -101,15 +97,27 @@ func (s *permissionService) RequestContext(ctx context.Context, opts CreatePermi
 		dir = config.WorkingDirectory()
 	}
 	p := PermissionRequest{ID: uuid.New().String(), Path: dir, SessionID: opts.SessionID, ToolName: opts.ToolName, Description: opts.Description, Action: opts.Action, Params: opts.Params}
-	s.mu.Lock()
-	allowed := slices.Contains(s.autoApproveSessions, opts.SessionID)
-	for _, prior := range s.sessionPermissions {
-		if prior.ToolName == p.ToolName && prior.Action == p.Action && prior.SessionID == p.SessionID && prior.Path == p.Path {
-			allowed = true
-			break
+	// Only interactive prompts share the gate. Already approved workers must
+	// not wait behind another worker's unanswered prompt.
+	for {
+		allowed, changed := s.approval(p)
+		if allowed {
+			return ctx.Err() == nil
+		}
+		select {
+		case s.gate <- struct{}{}:
+			defer func() { <-s.gate }()
+			goto acquired
+		case <-changed:
+		case <-ctx.Done():
+			return false
 		}
 	}
-	s.mu.Unlock()
+acquired:
+	if ctx.Err() != nil {
+		return false
+	}
+	allowed, changed := s.approval(p)
 	if allowed {
 		return true
 	}
@@ -118,13 +126,62 @@ func (s *permissionService) RequestContext(ctx context.Context, opts CreatePermi
 	defer s.pendingRequests.Delete(p.ID)
 	s.Publish(pubsub.CreatedEvent, p)
 	defer s.Publish(pubsub.DeletedEvent, p)
-	select {
-	case allowed := <-response:
-		return allowed
-	case <-ctx.Done():
-		return false
+	for {
+		select {
+		case allowed := <-response:
+			return allowed && ctx.Err() == nil
+		case <-changed:
+			allowed, changed = s.approval(p)
+			if allowed {
+				return ctx.Err() == nil
+			}
+		case <-ctx.Done():
+			return false
+		}
 	}
 }
+
+func (s *permissionService) approval(p PermissionRequest) (bool, <-chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	allowed := s.yolo || slices.Contains(s.autoApproveSessions, p.SessionID)
+	for _, prior := range s.sessionPermissions {
+		if prior.ToolName == p.ToolName && prior.Action == p.Action && prior.SessionID == p.SessionID && prior.Path == p.Path {
+			allowed = true
+			break
+		}
+	}
+	return allowed, s.changed
+}
+
+// SetYOLO enables automatic permission approval for this service's lifetime.
+// Disabling it preserves separate approvals explicitly granted by the user.
+func SetYOLO(service Service, enabled bool) bool {
+	s, ok := service.(*permissionService)
+	if !ok {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.yolo != enabled {
+		s.yolo = enabled
+		close(s.changed)
+		s.changed = make(chan struct{})
+	}
+	return true
+}
+
+// YOLOEnabled reports whether this app run bypasses tool permission prompts.
+func YOLOEnabled(service Service) bool {
+	s, ok := service.(*permissionService)
+	if !ok {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.yolo
+}
+
 func (s *permissionService) AutoApproveSession(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -135,6 +192,7 @@ func NewPermissionService() Service {
 	return &permissionService{
 		Broker:             pubsub.NewBroker[PermissionRequest](),
 		gate:               make(chan struct{}, 1),
+		changed:            make(chan struct{}),
 		sessionPermissions: make([]PermissionRequest, 0),
 	}
 }

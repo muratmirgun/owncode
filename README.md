@@ -188,6 +188,24 @@ Run `owncode browser setup` to extract the optional Chrome/Brave extension. See 
 Use `/settings`, `/models`, `/profiles`, `/skills`, `/agents`, or `/help` if your terminal intercepts a shortcut.
 Mac keyboards may require `Fn` for function keys.
 
+### Execution controls
+
+- `/fast on` requests priority processing for OpenAI and ChatGPT calls, including supported workers. `/fast off` selects standard processing.
+- `/yolo on` approves tool permission requests automatically, including worker requests. `/yolo off` restores normal permission checks.
+- `/fast` and `/yolo` without an argument toggle their modes. The input area shows active modes. Both reset on restart.
+
+Fast mode preserves the model and reasoning level. Provider access and higher usage rates can apply.
+OwnCode does not send priority fields to other providers. See [OpenAI fast mode](https://developers.openai.com/api/docs/guides/fast-mode).
+YOLO changes permission prompts only. Plan restrictions, worker ownership rules, and explicit user questions remain active.
+Turning YOLO off retains approvals that you granted separately with **Allow for session**.
+
+While workers stream, `Σ ≈… TPS` shows the combined live rate for the current conversation and its workers.
+The rate excludes finished workers and unrelated conversations. Live counts estimate visible text, reasoning, and tool arguments.
+Provider token counts replace estimates at completion when available. Hidden reasoning can make live rates differ from provider totals.
+
+Each worker has its own shell. Commands retain shell state within that worker's active task.
+Commands from different workers can overlap. Cancellation stops that worker's shell; its next command starts a fresh shell.
+
 ## Configuration
 
 Keep model definitions and keys in **`~/.owncode.json`**.

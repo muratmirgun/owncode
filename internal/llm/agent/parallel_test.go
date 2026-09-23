@@ -95,3 +95,33 @@ func TestAgentBatchCancellationAndErrors(t *testing.T) {
 		require.Equal(t, "child failed", result.Content)
 	}
 }
+
+func TestAgentBatchStartsNextCallWhenAnyWorkerFinishes(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	blocked := make(chan struct{})
+	started := make(chan string, 4)
+	tool := batchTool{run: func(ctx context.Context, call tools.ToolCall) (tools.ToolResponse, error) {
+		started <- call.ID
+		if call.ID == "slow" {
+			select {
+			case <-blocked:
+			case <-ctx.Done():
+				return tools.ToolResponse{}, ctx.Err()
+			}
+		}
+		return tools.NewTextResponse(call.ID), nil
+	}}
+	calls := []message.ToolCall{{ID: "slow"}, {ID: "fast1"}, {ID: "fast2"}, {ID: "next"}}
+	done := make(chan []message.ToolResult, 1)
+	go func() { done <- runAgentBatch(ctx, tool, calls) }()
+	for range calls {
+		select {
+		case <-started:
+		case <-ctx.Done():
+			t.Fatal("next worker waited for slow worker despite free capacity")
+		}
+	}
+	close(blocked)
+	require.Len(t, <-done, 4)
+}

@@ -21,6 +21,8 @@ func (a *appModel) registerPaletteCommands() {
 		{"new", "New session", "Session", "/new"},
 		{"agents", "View subagents", "Session", "/agents"},
 		{"reasoning", "Change reasoning", "Session", "F4 / alt+r"},
+		{"fast", "Toggle fast processing", "Session", "/fast on|off"},
+		{"yolo", "Toggle automatic approvals", "Session", "/yolo on|off"},
 		{"skills", "Manage skills", "System", "/skills"},
 		{"settings", "Open settings", "System", "/settings"},
 		{"connect", "Connect provider", "System", "/connect"},

@@ -10,6 +10,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/app"
 	"github.com/muratmirgun/owncode/internal/message"
+	"github.com/muratmirgun/owncode/internal/pubsub"
+	"github.com/muratmirgun/owncode/internal/session"
 	"github.com/stretchr/testify/require"
 )
 
@@ -121,4 +123,42 @@ func TestThroughputUsesProviderCountAndStreamClock(t *testing.T) {
 	require.Equal(t, 400, s.tokens)
 	require.True(t, s.exactTokens)
 	require.Equal(t, []float64{200}, s.history)
+}
+
+func TestThroughputIncludesOnlyActiveConversationStreams(t *testing.T) {
+	m := &editorCmp{app: &app.App{CoderAgent: unconfiguredAgent{}}, session: session.Session{ID: "parent"}, width: 100}
+	for id, parent := range map[string]string{"child": "parent", "nested": "child", "finished": "parent", "unrelated": "other"} {
+		m.Update(pubsub.Event[session.Session]{Type: pubsub.CreatedEvent, Payload: session.Session{ID: id, ParentSessionID: parent}})
+	}
+	m.throughput = map[string]*throughputStats{
+		"parent":    {messageID: "p", rate: 20},
+		"child":     {messageID: "c", rate: 30},
+		"nested":    {messageID: "n", rate: 40},
+		"finished":  {messageID: "f", rate: 900, finished: true},
+		"unrelated": {messageID: "u", rate: 900},
+	}
+	rate, streams, workers := m.activeThroughput()
+	require.Equal(t, 90.0, rate)
+	require.Equal(t, 3, streams)
+	require.Equal(t, 2, workers)
+	require.Contains(t, ansi.Strip(m.throughputView()), "Σ ≈90 TPS (3 streams)")
+	m.throughput["parent"].finished = true
+	rate, streams, workers = m.activeThroughput()
+	require.Equal(t, 70.0, rate)
+	require.Equal(t, 2, streams)
+	require.Equal(t, 2, workers)
+	m.Update(pubsub.Event[session.Session]{Type: pubsub.DeletedEvent, Payload: session.Session{ID: "nested"}})
+	rate, _, _ = m.activeThroughput()
+	require.Equal(t, 30.0, rate)
+}
+
+func TestSlashModeArgumentsStayLocal(t *testing.T) {
+	m := &editorCmp{textarea: textarea.New()}
+	for _, value := range []string{"/fast on", "/fast off", "/yolo on", "/yolo off", "/fast invalid", "/yolo on extra"} {
+		m.textarea.SetValue(value)
+		handled, cmd := m.handleSlash(tea.KeyPressMsg{Code: tea.KeyEnter})
+		require.True(t, handled, value)
+		require.NotNil(t, cmd)
+		require.Empty(t, m.textarea.Value())
+	}
 }

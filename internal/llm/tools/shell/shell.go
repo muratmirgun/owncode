@@ -2,8 +2,8 @@ package shell
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,290 +15,179 @@ import (
 	"github.com/muratmirgun/owncode/internal/config"
 )
 
+// PersistentShell serializes commands within one session, not across workers.
+// The shell process and its children share a group for cancellation and cleanup.
 type PersistentShell struct {
-	cmd          *exec.Cmd
-	stdin        *os.File
-	isAlive      bool
-	cwd          string
-	mu           sync.Mutex
-	commandQueue chan *commandExecution
+	cmd   *exec.Cmd
+	stdin io.WriteCloser
+	gate  chan struct{}
+	done  chan struct{}
+	stop  sync.Once
 }
 
-type commandExecution struct {
-	command    string
-	timeout    time.Duration
-	resultChan chan commandResult
-	ctx        context.Context
-}
+var shellPool = struct {
+	sync.Mutex
+	items  map[string]*PersistentShell
+	closed bool
+}{items: make(map[string]*PersistentShell)}
 
-type commandResult struct {
-	stdout      string
-	stderr      string
-	exitCode    int
-	interrupted bool
-	err         error
-}
-
-var (
-	shellInstance     *PersistentShell
-	shellInstanceOnce sync.Once
-)
-
-func GetPersistentShell(workingDir string) *PersistentShell {
-	shellInstanceOnce.Do(func() {
-		shellInstance = newPersistentShell(workingDir)
-	})
-
-	if shellInstance == nil {
-		shellInstance = newPersistentShell(workingDir)
-	} else if !shellInstance.isAlive {
-		shellInstance = newPersistentShell(shellInstance.cwd)
+// GetSessionShell returns a persistent shell owned by one conversation or worker.
+func GetSessionShell(sessionID, workingDir string) (*PersistentShell, error) {
+	shellPool.Lock()
+	defer shellPool.Unlock()
+	if shellPool.closed {
+		return nil, fmt.Errorf("shell service is closed")
 	}
-
-	return shellInstance
-}
-
-func newPersistentShell(cwd string) *PersistentShell {
-	// Get shell configuration from config
-	cfg := config.Get()
-
-	// Default to environment variable if config is not set or nil
-	var shellPath string
-	var shellArgs []string
-
-	if cfg != nil {
-		shellPath = cfg.Shell.Path
-		shellArgs = cfg.Shell.Args
-	}
-
-	if shellPath == "" {
-		shellPath = os.Getenv("SHELL")
-		if shellPath == "" {
-			shellPath = "/bin/bash"
+	if s := shellPool.items[sessionID]; s != nil {
+		select {
+		case <-s.done:
+			s.Close()
+		default:
+			return s, nil
 		}
 	}
+	s, err := newPersistentShell(workingDir)
+	if err != nil {
+		return nil, err
+	}
+	shellPool.items[sessionID] = s
+	return s, nil
+}
 
-	// Default shell args
+// CloseSessionShell releases a worker's process after its task ends.
+func CloseSessionShell(sessionID string) {
+	shellPool.Lock()
+	s := shellPool.items[sessionID]
+	delete(shellPool.items, sessionID)
+	shellPool.Unlock()
+	if s != nil {
+		s.Close()
+	}
+}
+
+// CloseAll stops the shells and rejects new commands during application shutdown.
+func CloseAll() {
+	shellPool.Lock()
+	shellPool.closed = true
+	items := shellPool.items
+	shellPool.items = make(map[string]*PersistentShell)
+	shellPool.Unlock()
+	for _, s := range items {
+		s.Close()
+	}
+}
+
+func newPersistentShell(cwd string) (*PersistentShell, error) {
+	var shellPath string
+	var shellArgs []string
+	if cfg := config.Get(); cfg != nil {
+		shellPath, shellArgs = cfg.Shell.Path, cfg.Shell.Args
+	}
+	if shellPath == "" {
+		shellPath = os.Getenv("SHELL")
+	}
+	if shellPath == "" {
+		shellPath = "/bin/bash"
+	}
 	if len(shellArgs) == 0 {
 		shellArgs = []string{"-l"}
 	}
-
 	cmd := exec.Command(shellPath, shellArgs...)
 	cmd.Dir = cwd
-
-	stdinPipe, err := cmd.StdinPipe()
-	if err != nil {
-		return nil
-	}
-
 	cmd.Env = append(os.Environ(), "GIT_EDITOR=true")
-
-	err = cmd.Start()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil
+		return nil, err
 	}
-
-	shell := &PersistentShell{
-		cmd:          cmd,
-		stdin:        stdinPipe.(*os.File),
-		isAlive:      true,
-		cwd:          cwd,
-		commandQueue: make(chan *commandExecution, 10),
+	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
+		return nil, err
 	}
-
+	s := &PersistentShell{cmd: cmd, stdin: stdin, gate: make(chan struct{}, 1), done: make(chan struct{})}
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Fprintf(os.Stderr, "Panic in shell command processor: %v\n", r)
-				shell.isAlive = false
-				close(shell.commandQueue)
-			}
-		}()
-		shell.processCommands()
+		// Wait always reaps the process. Exec reports premature termination.
+		_ = cmd.Wait()
+		s.terminate()
+		close(s.done)
 	}()
-
-	go func() {
-		err := cmd.Wait()
-		if err != nil {
-			// Log the error if needed
-		}
-		shell.isAlive = false
-		close(shell.commandQueue)
-	}()
-
-	return shell
+	return s, nil
 }
 
-func (s *PersistentShell) processCommands() {
-	for cmd := range s.commandQueue {
-		result := s.execCommand(cmd.command, cmd.timeout, cmd.ctx)
-		cmd.resultChan <- result
-	}
-}
-
-func (s *PersistentShell) execCommand(command string, timeout time.Duration, ctx context.Context) commandResult {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if !s.isAlive {
-		return commandResult{
-			stderr:   "Shell is not alive",
-			exitCode: 1,
-			err:      errors.New("shell is not alive"),
-		}
-	}
-
-	tempDir := os.TempDir()
-	stdoutFile := filepath.Join(tempDir, fmt.Sprintf("owncode-stdout-%d", time.Now().UnixNano()))
-	stderrFile := filepath.Join(tempDir, fmt.Sprintf("owncode-stderr-%d", time.Now().UnixNano()))
-	statusFile := filepath.Join(tempDir, fmt.Sprintf("owncode-status-%d", time.Now().UnixNano()))
-	cwdFile := filepath.Join(tempDir, fmt.Sprintf("owncode-cwd-%d", time.Now().UnixNano()))
-
-	defer func() {
-		os.Remove(stdoutFile)
-		os.Remove(stderrFile)
-		os.Remove(statusFile)
-		os.Remove(cwdFile)
-	}()
-
-	fullCommand := fmt.Sprintf(`
-eval %s < /dev/null > %s 2> %s
-EXEC_EXIT_CODE=$?
-pwd > %s
-echo $EXEC_EXIT_CODE > %s
-`,
-		shellQuote(command),
-		shellQuote(stdoutFile),
-		shellQuote(stderrFile),
-		shellQuote(cwdFile),
-		shellQuote(statusFile),
-	)
-
-	_, err := s.stdin.Write([]byte(fullCommand + "\n"))
-	if err != nil {
-		return commandResult{
-			stderr:   fmt.Sprintf("Failed to write command to shell: %v", err),
-			exitCode: 1,
-			err:      err,
-		}
-	}
-
-	interrupted := false
-
-	startTime := time.Now()
-
-	done := make(chan bool)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				s.killChildren()
-				interrupted = true
-				done <- true
-				return
-
-			case <-time.After(10 * time.Millisecond):
-				if fileExists(statusFile) && fileSize(statusFile) > 0 {
-					done <- true
-					return
-				}
-
-				if timeout > 0 {
-					elapsed := time.Since(startTime)
-					if elapsed > timeout {
-						s.killChildren()
-						interrupted = true
-						done <- true
-						return
-					}
-				}
-			}
-		}
-	}()
-
-	<-done
-
-	stdout := readFileOrEmpty(stdoutFile)
-	stderr := readFileOrEmpty(stderrFile)
-	exitCodeStr := readFileOrEmpty(statusFile)
-	newCwd := readFileOrEmpty(cwdFile)
-
-	exitCode := 0
-	if exitCodeStr != "" {
-		fmt.Sscanf(exitCodeStr, "%d", &exitCode)
-	} else if interrupted {
-		exitCode = 143
-		stderr += "\nCommand execution timed out or was interrupted"
-	}
-
-	if newCwd != "" {
-		s.cwd = strings.TrimSpace(newCwd)
-	}
-
-	return commandResult{
-		stdout:      stdout,
-		stderr:      stderr,
-		exitCode:    exitCode,
-		interrupted: interrupted,
-	}
-}
-
-func (s *PersistentShell) killChildren() {
-	if s.cmd == nil || s.cmd.Process == nil {
-		return
-	}
-
-	pgrepCmd := exec.Command("pgrep", "-P", fmt.Sprintf("%d", s.cmd.Process.Pid))
-	output, err := pgrepCmd.Output()
-	if err != nil {
-		return
-	}
-
-	for pidStr := range strings.SplitSeq(string(output), "\n") {
-		if pidStr = strings.TrimSpace(pidStr); pidStr != "" {
-			var pid int
-			fmt.Sscanf(pidStr, "%d", &pid)
-			if pid > 0 {
-				proc, err := os.FindProcess(pid)
-				if err == nil {
-					proc.Signal(syscall.SIGTERM)
-				}
-			}
-		}
-	}
-}
-
+// Exec retains shell state between commands. The timeout includes queue time.
+// Cancellation stops this session's process group and returns without draining
+// another worker's queue. A later call can create a fresh shell.
 func (s *PersistentShell) Exec(ctx context.Context, command string, timeoutMs int) (string, string, int, bool, error) {
-	if !s.isAlive {
-		return "", "Shell is not alive", 1, false, errors.New("shell is not alive")
+	if timeoutMs > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutMs)*time.Millisecond)
+		defer cancel()
 	}
-
-	timeout := time.Duration(timeoutMs) * time.Millisecond
-
-	resultChan := make(chan commandResult)
-	s.commandQueue <- &commandExecution{
-		command:    command,
-		timeout:    timeout,
-		resultChan: resultChan,
-		ctx:        ctx,
+	select {
+	case s.gate <- struct{}{}:
+		defer func() { <-s.gate }()
+	case <-ctx.Done():
+		return "", "", 143, true, ctx.Err()
+	case <-s.done:
+		return "", "", 1, false, fmt.Errorf("shell is not alive")
 	}
-
-	result := <-resultChan
-	return result.stdout, result.stderr, result.exitCode, result.interrupted, result.err
+	if err := ctx.Err(); err != nil {
+		return "", "", 143, true, err
+	}
+	select {
+	case <-s.done:
+		return "", "", 1, false, fmt.Errorf("shell is not alive")
+	default:
+	}
+	dir, err := os.MkdirTemp("", "owncode-shell-")
+	if err != nil {
+		return "", "", 1, false, err
+	}
+	defer os.RemoveAll(dir)
+	stdoutFile := filepath.Join(dir, "stdout")
+	stderrFile := filepath.Join(dir, "stderr")
+	statusFile := filepath.Join(dir, "status")
+	// Write the status atomically so the reader never sees an incomplete code.
+	script := fmt.Sprintf("eval %s < /dev/null > %s 2> %s\n__owncode_exit=$?\nprintf '%%s' \"$__owncode_exit\" > %s\ncommand mv %s %s\n",
+		shellQuote(command), shellQuote(stdoutFile), shellQuote(stderrFile), shellQuote(statusFile+".tmp"), shellQuote(statusFile+".tmp"), shellQuote(statusFile))
+	if _, err := io.WriteString(s.stdin, script); err != nil {
+		return "", "", 1, false, err
+	}
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			s.Close()
+			return readFileOrEmpty(stdoutFile), readFileOrEmpty(stderrFile), 143, true, ctx.Err()
+		case <-s.done:
+			return readFileOrEmpty(stdoutFile), readFileOrEmpty(stderrFile), 1, false, fmt.Errorf("shell exited before command completion")
+		case <-ticker.C:
+			status, err := os.ReadFile(statusFile)
+			if err != nil {
+				continue
+			}
+			var code int
+			if _, err := fmt.Sscanf(string(status), "%d", &code); err != nil {
+				return "", "", 1, false, err
+			}
+			return readFileOrEmpty(stdoutFile), readFileOrEmpty(stderrFile), code, false, nil
+		}
+	}
 }
 
+// Close terminates the process group and waits for the shell reaper.
 func (s *PersistentShell) Close() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.terminate()
+	<-s.done
+}
 
-	if !s.isAlive {
-		return
-	}
-
-	s.stdin.Write([]byte("exit\n"))
-
-	s.cmd.Process.Kill()
-	s.isAlive = false
+func (s *PersistentShell) terminate() {
+	s.stop.Do(func() {
+		// The process may already have exited. Cleanup is idempotent.
+		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+		_ = s.stdin.Close()
+	})
 }
 
 func shellQuote(s string) string {
@@ -306,22 +195,6 @@ func shellQuote(s string) string {
 }
 
 func readFileOrEmpty(path string) string {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
+	content, _ := os.ReadFile(path)
 	return string(content)
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-func fileSize(path string) int64 {
-	info, err := os.Stat(path)
-	if err != nil {
-		return 0
-	}
-	return info.Size()
 }
