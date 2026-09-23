@@ -42,18 +42,18 @@ func TestEditorHeightFollowsDraft(t *testing.T) {
 		text          string
 		width, height int
 	}{
-		{"", 40, 3},
-		{"hello", 40, 3},
-		{"one\ntwo\nthree", 40, 5},
-		{strings.Repeat("x", 50), 23, 5},
-		{strings.Repeat("line\n", 20), 40, 10},
-		{"", 40, 3},
+		{"", 40, 5},
+		{"hello", 40, 5},
+		{"one\ntwo\nthree", 40, 7},
+		{strings.Repeat("x", 50), 23, 7},
+		{strings.Repeat("line\n", 20), 40, 12},
+		{"", 40, 5},
 	} {
 		editor.textarea.SetValue(test.text)
 		require.Equal(t, test.height, editor.PreferredHeight(test.width))
 	}
 	editor.home = true
-	require.Equal(t, 4, editor.PreferredHeight(40))
+	require.Equal(t, 5, editor.PreferredHeight(40))
 }
 
 func TestEditorAcceptsPasteWithoutSending(t *testing.T) {
@@ -61,7 +61,7 @@ func TestEditorAcceptsPasteWithoutSending(t *testing.T) {
 	editor.textarea.Focus()
 	editor.Update(tea.PasteMsg{Content: "first line\nsecond line"})
 	require.Equal(t, "first line\nsecond line", editor.textarea.Value())
-	require.Equal(t, 4, editor.PreferredHeight(60))
+	require.Equal(t, 6, editor.PreferredHeight(60))
 }
 
 func TestGrowingEditorRevealsPastedLines(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/tui/layout"
+	"github.com/muratmirgun/owncode/internal/tui/styles"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
 	"github.com/muratmirgun/owncode/internal/tui/util"
 )
@@ -161,7 +162,7 @@ func (t *themeDialogCmp) View() string {
 			lipgloss.NewStyle().Width(inner).Background(preview.Primary()).Foreground(preview.Background()).Bold(true).Render(ansi.Truncate(" Selected item", inner, "…")))
 	}
 	lines = append(lines, line(""), line("↑↓ preview · enter apply · esc cancel"))
-	view := base.Width(width).Padding(1, 2).Render(strings.Join(lines, "\n"))
+	view := styles.PanelFrame(width).Render(strings.Join(lines, "\n"))
 	return lipgloss.NewStyle().MaxWidth(max(1, t.width)).MaxHeight(max(1, t.height)).Render(view)
 }
 

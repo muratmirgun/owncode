@@ -409,7 +409,7 @@ func (m *editorCmp) rememberWorkerParents(msg message.Message) {
 func (m *editorCmp) View() string {
 	bg := theme.CurrentTheme().BackgroundSecondary()
 	content := m.editorView()
-	if m.home && len(m.attachments) == 0 {
+	if m.width > 2 {
 		t := theme.CurrentTheme()
 		_, profile := config.CurrentProfile()
 		color := t.Secondary()
@@ -428,42 +428,34 @@ func (m *editorCmp) View() string {
 }
 
 func (m *editorCmp) editorView() string {
-	t := theme.CurrentTheme()
 	if m.home {
 		m.textarea.Placeholder = `Ask anything… "Fix a TODO in the codebase"`
 	} else {
 		m.textarea.Placeholder = "Message… (/ commands, @ files)"
 	}
 
-	// Style the prompt with theme colors
-	style := lipgloss.NewStyle().
-		Padding(0, 0, 0, 1).
-		Bold(true).
-		Foreground(t.Primary()).Background(t.BackgroundSecondary())
-
-	if m.home && len(m.attachments) == 0 {
-		m.resizeTextarea(max(1, m.height-3))
-		return lipgloss.JoinVertical(lipgloss.Left, "", m.textarea.View(), "", " "+m.homeProfileView())
+	metadata := m.throughputView()
+	if m.home {
+		metadata = m.homeProfileView()
 	}
-	m.resizeTextarea(max(1, m.height-2))
-	if len(m.attachments) == 0 {
-		return lipgloss.JoinVertical(lipgloss.Left, m.throughputView(), "", lipgloss.JoinHorizontal(lipgloss.Top, style.Render(">"), m.textarea.View()))
+	extra := 4
+	if len(m.attachments) > 0 {
+		extra++
 	}
-	m.resizeTextarea(max(1, m.height-3))
-	return lipgloss.JoinVertical(lipgloss.Top,
-		m.throughputView(),
-		"",
-		m.attachmentsContent(),
-		lipgloss.JoinHorizontal(lipgloss.Top, style.Render(">"),
-			m.textarea.View()),
-	)
+	m.resizeTextarea(max(1, m.height-extra))
+	rows := []string{"", m.textarea.View()}
+	if len(m.attachments) > 0 {
+		rows = append(rows, m.attachmentsContent())
+	}
+	rows = append(rows, "", " "+metadata, " ")
+	return lipgloss.JoinVertical(lipgloss.Left, rows...)
 }
 
 func (m *editorCmp) SetSize(width, height int) tea.Cmd {
 	m.width = width
 	m.height = height
-	m.textarea.SetWidth(max(1, width-2))
-	m.resizeTextarea(max(1, height-2))
+	m.textarea.SetWidth(max(1, width-4))
+	m.resizeTextarea(max(1, height-4))
 	return nil
 }
 
@@ -515,11 +507,11 @@ func CreateTextArea(existing *textarea.Model) textarea.Model {
 	taStyles := ta.Styles()
 	taStyles.Blurred.Base = styles.BaseStyle().Background(bgColor).Foreground(textColor)
 	taStyles.Blurred.CursorLine = styles.BaseStyle().Background(bgColor)
-	taStyles.Blurred.Placeholder = styles.BaseStyle().Background(bgColor).Foreground(textColor)
+	taStyles.Blurred.Placeholder = styles.BaseStyle().Background(bgColor).Foreground(t.TextMuted())
 	taStyles.Blurred.Text = styles.BaseStyle().Background(bgColor).Foreground(textColor)
 	taStyles.Focused.Base = styles.BaseStyle().Background(bgColor).Foreground(textColor)
 	taStyles.Focused.CursorLine = styles.BaseStyle().Background(bgColor)
-	taStyles.Focused.Placeholder = styles.BaseStyle().Background(bgColor).Foreground(textColor)
+	taStyles.Focused.Placeholder = styles.BaseStyle().Background(bgColor).Foreground(t.TextMuted())
 	taStyles.Focused.Text = styles.BaseStyle().Background(bgColor).Foreground(textColor)
 
 	taStyles.Focused.EndOfBuffer = styles.BaseStyle().Background(bgColor)
@@ -554,12 +546,9 @@ func NewEditorCmp(app *app.App) util.Model {
 
 // PreferredHeight grows with explicit and wrapped lines, then scrolls at eight.
 func (m *editorCmp) PreferredHeight(width int) int {
-	textWidth := max(1, width-3)
+	textWidth := max(1, width-5)
 	lines := strings.Count(ansi.Wrap(m.textarea.Value(), textWidth, ""), "\n") + 1
-	extra := 2 // Throughput row and separation from the draft.
-	if m.home {
-		extra++
-	}
+	extra := 4 // Top and bottom insets, separation, and model information.
 	if len(m.attachments) > 0 {
 		extra++
 	}

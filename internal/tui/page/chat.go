@@ -334,11 +334,10 @@ func NewChatPage(app *app.App) util.Model {
 
 	messagesContainer := layout.NewContainer(
 		chat.NewMessagesCmp(app),
-		layout.WithPadding(1, 1, 0, 1),
+		layout.WithPadding(1, 2, 0, 2),
 	)
 	editorContainer := layout.NewContainer(
 		chat.NewEditorCmp(app),
-		layout.WithBorder(false, false, false, true),
 		layout.WithSecondarySurface(),
 	)
 	sidebarContainer := layout.NewContainer(

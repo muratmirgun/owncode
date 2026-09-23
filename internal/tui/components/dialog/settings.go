@@ -255,7 +255,7 @@ func (s *settingsCmp) View() string {
 	t := theme.CurrentTheme()
 	width := max(20, min(94, s.width-6))
 	height := max(12, min(s.height-4, len(s.rows())+13))
-	inner := width - 6
+	inner := width - 4
 	base := styles.BaseStyle().Background(t.BackgroundSecondary())
 	line := func(text string) string { return base.Width(inner).Render(ansi.Truncate(text, inner, "…")) }
 	title := base.Foreground(t.Text()).Bold(true).Render("Settings")
@@ -312,7 +312,7 @@ func (s *settingsCmp) View() string {
 		hint = "Type what to preserve · enter save · esc cancel"
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, line(title), line(strings.Join(tabs, " ")), line(base.Foreground(t.TextMuted()).Render(search)), line(""), strings.Join(body, "\n"), line(""), base.Height(2).Render(ansi.Wrap(description, inner, "")), line(""), line(hint))
-	return styles.Surface(base.Width(width).Padding(1, 2).Border(lipgloss.RoundedBorder()).BorderForeground(t.BorderNormal()).BorderBackground(t.BackgroundSecondary()).Render(content), t.BackgroundSecondary())
+	return styles.Surface(styles.PanelFrame(width).Render(content), t.BackgroundSecondary())
 }
 
 func (s *settingsCmp) changeCompaction(action string) tea.Cmd {

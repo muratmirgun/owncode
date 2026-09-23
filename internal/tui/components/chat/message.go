@@ -60,7 +60,7 @@ func prepareMessageRender(msg string, isUser bool, isFocused bool, width int, in
 
 	style := styles.BaseStyle().
 		Width(max(1, width)).
-		Padding(1, 1).
+		Padding(1, styles.PanelInset).
 		Background(t.BackgroundSecondary()).
 		BorderLeft(true).
 		Foreground(t.TextMuted()).
@@ -71,7 +71,8 @@ func prepareMessageRender(msg string, isUser bool, isFocused bool, width int, in
 		style = style.BorderForeground(t.Secondary())
 	}
 
-	renderer := styles.GetMarkdownRenderer(max(1, width-3))
+	footerStyle := styles.BaseStyle().Foreground(t.TextMuted()).Width(max(1, width)).PaddingLeft(styles.PanelInset + 1)
+	renderer := styles.GetMarkdownRenderer(max(1, width-5))
 	return func() string {
 		markdown, _ := renderer.Render(msg)
 		// Apply markdown formatting and handle background color
@@ -81,9 +82,6 @@ func prepareMessageRender(msg string, isUser bool, isFocused bool, width int, in
 
 		// Remove newline at the end
 		parts[0] = strings.TrimSuffix(parts[0], "\n")
-		if len(info) > 0 {
-			parts = append(parts, info...)
-		}
 
 		rendered := style.Render(
 			lipgloss.JoinVertical(
@@ -92,7 +90,12 @@ func prepareMessageRender(msg string, isUser bool, isFocused bool, width int, in
 			),
 		)
 
-		return styles.Surface(rendered, t.BackgroundSecondary())
+		rendered = styles.Surface(rendered, t.BackgroundSecondary())
+		for _, detail := range info {
+			text := ansi.Truncate(strings.TrimSpace(ansi.Strip(detail)), max(1, width-styles.PanelInset-1), "…")
+			rendered += "\n" + footerStyle.Render(text)
+		}
+		return rendered
 	}
 }
 
@@ -168,25 +171,25 @@ func renderAssistantMessage(
 		case message.FinishReasonEndTurn:
 			took := formatTimestampDiff(msg.CreatedAt, finishData.Time)
 			info = append(info, baseStyle.
-				Width(max(1, width-3)).
+				Width(max(1, width-5)).
 				Foreground(t.TextMuted()).
 				Render(fmt.Sprintf(" %s (%s)", models.SupportedModels[msg.Model].Name, took)),
 			)
 		case message.FinishReasonCanceled:
 			info = append(info, baseStyle.
-				Width(max(1, width-3)).
+				Width(max(1, width-5)).
 				Foreground(t.TextMuted()).
 				Render(fmt.Sprintf(" %s (%s)", models.SupportedModels[msg.Model].Name, "canceled")),
 			)
 		case message.FinishReasonError:
 			info = append(info, baseStyle.
-				Width(max(1, width-3)).
+				Width(max(1, width-5)).
 				Foreground(t.TextMuted()).
 				Render(fmt.Sprintf(" %s (%s)", models.SupportedModels[msg.Model].Name, "error")),
 			)
 		case message.FinishReasonPermissionDenied:
 			info = append(info, baseStyle.
-				Width(max(1, width-3)).
+				Width(max(1, width-5)).
 				Foreground(t.TextMuted()).
 				Render(fmt.Sprintf(" %s (%s)", models.SupportedModels[msg.Model].Name, "permission denied")),
 			)
@@ -197,7 +200,7 @@ func renderAssistantMessage(
 			content = "*Finished without output*"
 		}
 		if isSummary {
-			info = append(info, baseStyle.Width(max(1, width-3)).Foreground(t.TextMuted()).Render(" (summary)"))
+			info = append(info, baseStyle.Width(max(1, width-5)).Foreground(t.TextMuted()).Render(" (summary)"))
 		}
 
 		content = renderText(content, false, true, width, info...)
@@ -593,10 +596,10 @@ func renderToolMessage(
 	style := baseStyle.
 		Width(max(1, width)).
 		Background(t.BackgroundSecondary()).
-		Padding(1, 1).
+		Padding(1, styles.PanelInset).
 		BorderLeft(true).
 		BorderStyle(lipgloss.ThickBorder()).
-		PaddingLeft(1).
+		PaddingLeft(styles.PanelInset).
 		BorderForeground(t.TextMuted())
 	// Leave room for the accent border and horizontal padding.
 	width--
@@ -617,7 +620,7 @@ func renderToolMessage(
 		toolAction := getToolAction(toolCall.Name)
 
 		progressText := baseStyle.
-			Width(width - 2 - lipgloss.Width(toolNameText)).
+			Width(width - 4 - lipgloss.Width(toolNameText)).
 			Foreground(t.TextMuted()).
 			Render(fmt.Sprintf("%s", toolAction))
 
@@ -634,10 +637,10 @@ func renderToolMessage(
 	if collapsible {
 		toolNameText = baseStyle.Foreground(t.TextMuted()).Render("▾ " + toolName(toolCall.Name) + ": ")
 	}
-	params := renderToolParams(max(1, width-2-lipgloss.Width(toolNameText)), toolCall)
+	params := renderToolParams(max(1, width-4-lipgloss.Width(toolNameText)), toolCall)
 	responseContent := ""
 	if response != nil {
-		responseContent = renderToolResponse(toolCall, *response, width-2, isExpanded)
+		responseContent = renderToolResponse(toolCall, *response, width-4, isExpanded)
 		responseContent = strings.TrimSuffix(responseContent, "\n")
 	} else {
 		status := "Pending"
@@ -657,7 +660,7 @@ func renderToolMessage(
 		}
 		responseContent = baseStyle.
 			Italic(true).
-			Width(width - 2).
+			Width(width - 4).
 			Foreground(t.TextMuted()).
 			Render(status)
 	}
@@ -665,7 +668,7 @@ func renderToolMessage(
 	parts := []string{}
 	if !nested {
 		formattedParams := baseStyle.
-			Width(width - 2 - lipgloss.Width(toolNameText)).
+			Width(width - 4 - lipgloss.Width(toolNameText)).
 			Foreground(t.TextMuted()).
 			Render(params)
 
@@ -675,7 +678,7 @@ func renderToolMessage(
 			Foreground(t.TextMuted()).
 			Render(" └ ")
 		formattedParams := baseStyle.
-			Width(width - 2 - lipgloss.Width(toolNameText)).
+			Width(width - 4 - lipgloss.Width(toolNameText)).
 			Foreground(t.TextMuted()).
 			Render(params)
 		parts = append(parts, lipgloss.JoinHorizontal(lipgloss.Left, prefix, toolNameText, formattedParams))
@@ -767,14 +770,14 @@ func renderAgentCard(call message.ToolCall, history []message.Message, children 
 	if result == nil && params.WorkerID == "" && latestAssistant != nil && !agent.IsTaskRunning(agent.TaskID(call)) && latestAssistant.FinishReason() == message.FinishReasonEndTurn {
 		state = "Done"
 	}
-	inner := max(1, width-3)
+	inner := max(1, width-5)
 	base := styles.BaseStyle().Background(t.BackgroundSecondary())
 	line := func(text string) string { return ansi.Truncate(strings.Join(strings.Fields(text), " "), inner, "…") }
 	title := base.Foreground(t.Primary()).Bold(true).Render(line(role + " · " + params.Prompt))
 	activity := base.Foreground(t.TextMuted()).Render(line("↳ " + latest))
 	metadata := base.Foreground(t.TextMuted()).Render(util.WorkerMetadataLine(latestAssistant, inner))
 	hint := base.Foreground(t.TextMuted()).Render(line(state + " · click to open"))
-	content := base.Width(max(1, width)).Padding(0, 1).Border(lipgloss.ThickBorder(), false, false, false, true).BorderForeground(t.Primary()).Render(strings.Join([]string{title, activity, metadata, hint}, "\n"))
+	content := base.Width(max(1, width)).Padding(0, styles.PanelInset).Border(lipgloss.ThickBorder(), false, false, false, true).BorderForeground(t.Primary()).Render(strings.Join([]string{title, activity, metadata, hint}, "\n"))
 	content = styles.Surface(content, t.BackgroundSecondary())
 	return uiMessage{ID: call.ID, taskID: agent.TaskID(call), messageType: toolMessageType, position: position, height: lipgloss.Height(content), content: content}
 }
