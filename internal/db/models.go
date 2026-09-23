@@ -19,14 +19,15 @@ type File struct {
 }
 
 type Message struct {
-	ID         string         `json:"id"`
-	SessionID  string         `json:"session_id"`
-	Role       string         `json:"role"`
-	Parts      string         `json:"parts"`
-	Model      sql.NullString `json:"model"`
-	CreatedAt  int64          `json:"created_at"`
-	UpdatedAt  int64          `json:"updated_at"`
-	FinishedAt sql.NullInt64  `json:"finished_at"`
+	ID              string         `json:"id"`
+	SessionID       string         `json:"session_id"`
+	Role            string         `json:"role"`
+	Parts           string         `json:"parts"`
+	Model           sql.NullString `json:"model"`
+	ReasoningEffort sql.NullString `json:"reasoning_effort"`
+	CreatedAt       int64          `json:"created_at"`
+	UpdatedAt       int64          `json:"updated_at"`
+	FinishedAt      sql.NullInt64  `json:"finished_at"`
 }
 
 type Session struct {

@@ -16,9 +16,10 @@ import (
 )
 
 type CreateMessageParams struct {
-	Role  MessageRole
-	Parts []ContentPart
-	Model models.ModelID
+	Role            MessageRole
+	Parts           []ContentPart
+	Model           models.ModelID
+	ReasoningEffort string
 }
 
 type Service interface {
@@ -72,11 +73,12 @@ func (s *service) Create(ctx context.Context, sessionID string, params CreateMes
 		return Message{}, err
 	}
 	dbMessage, err := s.q.CreateMessage(ctx, db.CreateMessageParams{
-		ID:        uuid.New().String(),
-		SessionID: sessionID,
-		Role:      string(params.Role),
-		Parts:     string(partsJSON),
-		Model:     sql.NullString{String: string(params.Model), Valid: true},
+		ID:              uuid.New().String(),
+		SessionID:       sessionID,
+		Role:            string(params.Role),
+		Parts:           string(partsJSON),
+		Model:           sql.NullString{String: string(params.Model), Valid: true},
+		ReasoningEffort: sql.NullString{String: params.ReasoningEffort, Valid: params.ReasoningEffort != ""},
 	})
 	if err != nil {
 		return Message{}, err
@@ -167,13 +169,14 @@ func (s *service) fromDBItem(item db.Message) (Message, error) {
 		return Message{}, err
 	}
 	return Message{
-		ID:        item.ID,
-		SessionID: item.SessionID,
-		Role:      MessageRole(item.Role),
-		Parts:     parts,
-		Model:     models.ModelID(item.Model.String),
-		CreatedAt: item.CreatedAt,
-		UpdatedAt: item.UpdatedAt,
+		ID:              item.ID,
+		SessionID:       item.SessionID,
+		Role:            MessageRole(item.Role),
+		Parts:           parts,
+		Model:           models.ModelID(item.Model.String),
+		ReasoningEffort: item.ReasoningEffort.String,
+		CreatedAt:       item.CreatedAt,
+		UpdatedAt:       item.UpdatedAt,
 	}, nil
 }
 

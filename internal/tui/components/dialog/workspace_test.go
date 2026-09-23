@@ -8,7 +8,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/config"
+	"github.com/muratmirgun/owncode/internal/llm/models"
 	"github.com/muratmirgun/owncode/internal/message"
 	"github.com/stretchr/testify/require"
 )
@@ -76,4 +78,31 @@ func TestWorkspacePanelsRender(t *testing.T) {
 	require.Empty(t, settings.query)
 	settings.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	require.False(t, settings.editingFocus)
+}
+
+func TestAgentsShowWorkerSettingsAndPreserveListHeight(t *testing.T) {
+	name := strings.Repeat("worker-model-", 8)
+	for _, size := range [][2]int{{60, 24}, {110, 32}} {
+		a := NewAgentsCmp(nil).(*agentsCmp)
+		a.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		for i := 0; i < 20; i++ {
+			a.rows = append(a.rows, agentRow{title: "Review source", state: "Working", metadata: &message.Message{Role: message.Assistant, Model: models.ModelID(name), ReasoningEffort: "high"}, detail: "Task: review"})
+		}
+		a.selected = 19
+		list := a.View()
+		require.Contains(t, ansi.Strip(list), "Effort: high")
+		require.LessOrEqual(t, lipgloss.Width(list), size[0])
+		require.LessOrEqual(t, lipgloss.Height(list), size[1])
+		a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		require.True(t, a.details)
+		detail := ansi.Strip(a.View())
+		require.Contains(t, detail, "Reasoning: high")
+		require.Contains(t, agentDetail(a.rows[19]), "Model: "+name)
+		updated := append([]agentRow(nil), a.rows...)
+		replacement := *updated[19].metadata
+		replacement.ReasoningEffort = "low"
+		updated[19].metadata = &replacement
+		a.Update(agentRowsMsg{parent: a.parent, generation: a.generation, rows: updated})
+		require.Contains(t, ansi.Strip(a.View()), "Reasoning: low")
+	}
 }

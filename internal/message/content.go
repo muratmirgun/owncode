@@ -110,13 +110,14 @@ type Finish struct {
 func (Finish) isPart() {}
 
 type Message struct {
-	ID        string
-	Role      MessageRole
-	SessionID string
-	Parts     []ContentPart
-	Model     models.ModelID
-	CreatedAt int64
-	UpdatedAt int64
+	ID              string
+	Role            MessageRole
+	SessionID       string
+	Parts           []ContentPart
+	Model           models.ModelID
+	ReasoningEffort string
+	CreatedAt       int64
+	UpdatedAt       int64
 	// Stream timing and usage travel with live events, outside persisted parts.
 	StreamStartedAt time.Time
 	StreamUpdatedAt time.Time
