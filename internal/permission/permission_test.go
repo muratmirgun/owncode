@@ -37,3 +37,48 @@ func TestQueuedApprovalAndCancellation(t *testing.T) {
 	service.Grant(first.Payload) // A late response cannot block or approve another worker.
 	service.Deny(second.Payload)
 }
+
+func TestApprovedWorkerBypassesPendingPrompt(t *testing.T) {
+	service := NewPermissionService()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	events := service.Subscribe(ctx)
+	done := make(chan bool, 1)
+	go func() {
+		done <- Request(ctx, service, CreatePermissionRequest{SessionID: "pending", Path: "/workspace/file"})
+	}()
+	first := <-events
+	service.AutoApproveSession("approved")
+	require.True(t, Request(ctx, service, CreatePermissionRequest{SessionID: "approved", Path: "/workspace/file"}))
+	service.Deny(first.Payload)
+	require.False(t, <-done)
+}
+
+func TestYOLOTogglesPendingAndFuturePermissions(t *testing.T) {
+	service := NewPermissionService()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	events := service.Subscribe(ctx)
+	require.False(t, YOLOEnabled(service))
+	done := make(chan bool, 1)
+	go func() {
+		done <- Request(ctx, service, CreatePermissionRequest{SessionID: "worker", Path: "/workspace/file"})
+	}()
+	require.Equal(t, pubsub.CreatedEvent, (<-events).Type)
+	require.True(t, SetYOLO(service, true))
+	require.True(t, <-done)
+	require.Equal(t, pubsub.DeletedEvent, (<-events).Type)
+	require.True(t, Request(ctx, service, CreatePermissionRequest{SessionID: "another-worker", Path: "/workspace/file"}))
+	stopped, stop := context.WithCancel(ctx)
+	stop()
+	require.False(t, Request(stopped, service, CreatePermissionRequest{SessionID: "canceled", Path: "/workspace/file"}))
+	require.True(t, SetYOLO(service, false))
+	go func() {
+		done <- Request(ctx, service, CreatePermissionRequest{SessionID: "worker", Path: "/workspace/file"})
+	}()
+	next := <-events
+	require.Equal(t, pubsub.CreatedEvent, next.Type)
+	service.Deny(next.Payload)
+	require.False(t, <-done)
+	require.False(t, YOLOEnabled(NewPermissionService()))
+}

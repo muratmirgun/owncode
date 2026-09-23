@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -48,6 +49,7 @@ type editorCmp struct {
 	slashIndex        int
 	slashDismissed    bool
 	throughput        map[string]*throughputStats
+	throughputParents map[string]string
 	throughputTicking bool
 }
 
@@ -208,10 +210,17 @@ func (m *editorCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 		}
 		return m, nil
 	case pubsub.Event[message.Message]:
+		if msg.Type == pubsub.DeletedEvent {
+			if stats := m.throughput[msg.Payload.SessionID]; stats != nil && stats.messageID == msg.Payload.ID {
+				delete(m.throughput, msg.Payload.SessionID)
+			}
+			return m, nil
+		}
 		if msg.Payload.Role == message.User && msg.Payload.SessionID == m.session.ID && msg.Type == pubsub.CreatedEvent {
 			m.rememberMessage(msg.Payload)
 		}
 		if msg.Payload.Role == message.Assistant && msg.Type != pubsub.DeletedEvent {
+			m.rememberWorkerParents(msg.Payload)
 			if m.throughput == nil {
 				m.throughput = make(map[string]*throughputStats)
 			}
@@ -227,11 +236,23 @@ func (m *editorCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case pubsub.Event[session.Session]:
+		if m.throughputParents == nil {
+			m.throughputParents = make(map[string]string)
+		}
+		if msg.Type == pubsub.DeletedEvent {
+			delete(m.throughputParents, msg.Payload.ID)
+			delete(m.throughput, msg.Payload.ID)
+		} else {
+			m.throughputParents[msg.Payload.ID] = msg.Payload.ParentSessionID
+		}
+		return m, nil
 	case historyLoadedMsg:
 		if msg.err == nil && msg.session.ID == m.session.ID && msg.owner != nil && msg.generation == msg.owner.loadGeneration {
 			m.history = nil
 			for _, previous := range msg.owner.messages {
 				m.rememberMessage(previous)
+				m.rememberWorkerParents(previous)
 			}
 		}
 		return m, nil
@@ -323,6 +344,29 @@ func (m *editorCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, m.slashSuggestions())
 	}
 	return m, cmd
+}
+
+// Worker calls also identify resumed children before their next session update.
+func (m *editorCmp) rememberWorkerParents(msg message.Message) {
+	for _, call := range msg.ToolCalls() {
+		if call.Name != agent.AgentToolName {
+			continue
+		}
+		var params struct {
+			WorkerID string `json:"worker_id"`
+		}
+		if json.Unmarshal([]byte(call.Input), &params) != nil {
+			continue
+		}
+		id := call.ID
+		if params.WorkerID != "" {
+			id = params.WorkerID
+		}
+		if m.throughputParents == nil {
+			m.throughputParents = make(map[string]string)
+		}
+		m.throughputParents[id] = msg.SessionID
+	}
 }
 
 func (m *editorCmp) View() string {

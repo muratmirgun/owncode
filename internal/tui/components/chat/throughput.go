@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/message"
+	"github.com/muratmirgun/owncode/internal/permission"
 	"github.com/muratmirgun/owncode/internal/tui/styles"
 	"github.com/muratmirgun/owncode/internal/tui/theme"
 )
@@ -156,6 +157,9 @@ func (m *editorCmp) throughputView() string {
 		}
 	}
 	parts := []string{name, "— TPS"}
+	if modes := m.executionModes(); modes != "" {
+		parts[0] = modes + " · " + parts[0]
+	}
 	if s := m.throughput[m.session.ID]; s != nil {
 		if s.tokens > 0 {
 			parts[1] = fmt.Sprintf("≈%.0f TPS", s.rate)
@@ -174,6 +178,11 @@ func (m *editorCmp) throughputView() string {
 			tokenLabel = fmt.Sprintf("%d tokens", s.tokens)
 		}
 		parts = append(parts, tokenLabel)
+	}
+	if rate, streams, workers := m.activeThroughput(); workers > 0 {
+		// Parent-only history and token counts are not aggregate measurements.
+		parts = parts[:2]
+		parts[1] = fmt.Sprintf("Σ ≈%.0f TPS (%d streams)", rate, streams)
 	}
 	// Drop lower priority fields before truncating model, speed, and history.
 	for len(parts) > 3 && ansi.StringWidth(strings.Join(parts, " · ")) > m.width {
@@ -220,8 +229,52 @@ func (m *editorCmp) homeProfileView() string {
 		modelName = "No model selected"
 	}
 	line := base.Foreground(color).Render(name) + base.Foreground(t.TextMuted()).Render(" · ") + base.Foreground(t.Text()).Render(modelName)
+	if modes := m.executionModes(); modes != "" {
+		line = base.Foreground(t.Warning()).Bold(true).Render(modes) + " · " + line
+	}
 	if model.Provider != "" {
 		line += base.Foreground(t.TextMuted()).Render("  " + string(model.Provider))
 	}
 	return ansi.Truncate(line, max(1, m.width-3), "…")
+}
+
+func (m *editorCmp) executionModes() string {
+	var modes []string
+	if permission.YOLOEnabled(m.app.Permissions) {
+		modes = append(modes, "YOLO")
+	}
+	if config.FastMode() {
+		label := "FAST"
+		if !config.SupportsFast(m.app.CoderAgent.Model()) {
+			label = "FAST (unsupported)"
+		}
+		modes = append(modes, label)
+	}
+	return strings.Join(modes, " · ")
+}
+
+// activeThroughput sums live streams in this conversation only. Completed
+// worker averages must not inflate the rate while another worker runs.
+func (m *editorCmp) activeThroughput() (rate float64, streams, workers int) {
+	if m.session.ID == "" {
+		return
+	}
+	for id, stats := range m.throughput {
+		if stats.messageID == "" || stats.finished {
+			continue
+		}
+		ancestor := id
+		for depth := 0; ancestor != "" && ancestor != m.session.ID && depth <= len(m.throughputParents); depth++ {
+			ancestor = m.throughputParents[ancestor]
+		}
+		if ancestor != m.session.ID {
+			continue
+		}
+		rate += stats.rate
+		streams++
+		if id != m.session.ID {
+			workers++
+		}
+	}
+	return
 }

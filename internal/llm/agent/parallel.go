@@ -3,19 +3,27 @@ package agent
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/muratmirgun/owncode/internal/llm/tools"
 	"github.com/muratmirgun/owncode/internal/message"
 )
 
-// runAgentBatch runs read-only children together and returns results in call order.
+// runAgentBatch runs children together and returns results in call order.
 // The parent waits for every worker; cancellation also stops queued calls.
 func runAgentBatch(ctx context.Context, tool tools.BaseTool, calls []message.ToolCall) []message.ToolResult {
 	results := make([]message.ToolResult, len(calls))
 	var workers sync.WaitGroup
+	var next atomic.Int64
 	for worker := 0; worker < min(3, len(calls)); worker++ {
 		workers.Go(func() {
-			for i := worker; i < len(calls); i += 3 {
+			// Claim the next call as soon as any worker finishes. Fixed stripes
+			// leave idle workers waiting behind an unrelated long-running call.
+			for {
+				i := int(next.Add(1) - 1)
+				if i >= len(calls) {
+					return
+				}
 				call := calls[i]
 				result := message.ToolResult{ToolCallID: call.ID}
 				if ctx.Err() != nil {

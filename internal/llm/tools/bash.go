@@ -284,8 +284,11 @@ func (b *bashTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error)
 		}
 	}
 	startTime := time.Now()
-	shell := shell.GetPersistentShell(config.WorkingDirectory())
-	stdout, stderr, exitCode, interrupted, err := shell.Exec(ctx, params.Command, params.Timeout)
+	commandShell, err := shell.GetSessionShell(sessionID, config.WorkingDirectory())
+	if err != nil {
+		return ToolResponse{}, fmt.Errorf("start shell: %w", err)
+	}
+	stdout, stderr, exitCode, interrupted, err := commandShell.Exec(ctx, params.Command, params.Timeout)
 	if err != nil {
 		return ToolResponse{}, fmt.Errorf("error executing command: %w", err)
 	}

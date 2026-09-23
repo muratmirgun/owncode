@@ -59,13 +59,13 @@ func TestWitchWorkerSendsRoleModelAndWritesOwnedFile(t *testing.T) {
 			}
 			return
 		}
-		_, err := fmt.Fprint(w, "data: {\"id\":\"response\",\"object\":\"chat.completion.chunk\",\"model\":\"role-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Implemented and verified result.txt\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+		_, err := fmt.Fprint(w, "data: {\"id\":\"response\",\"object\":\"chat.completion.chunk\",\"model\":\"role-model\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"Checking the result.\",\"content\":\"Implemented and verified result.txt\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 		if err != nil {
 			t.Error(err)
 		}
 	}))
 	defer server.Close()
-	models.SupportedModels["witch-http"] = models.Model{ID: "witch-http", APIModel: "role-model", Name: "Role Model", Provider: "witch-test", Custom: true, CanReason: true, ReasoningLevels: []string{"low", "high"}, DefaultMaxTokens: 1024, ContextWindow: 8192}
+	models.SupportedModels["witch-http"] = models.Model{ID: "witch-http", APIModel: "role-model", Name: "Role Model", Provider: "witch-test", Custom: true, CanReason: true, ReasoningField: "reasoning_content", ReasoningLevels: []string{"low", "high"}, DefaultMaxTokens: 1024, ContextWindow: 8192}
 	cfg.Providers = map[models.ModelProvider]config.Provider{"witch-test": {APIKey: "fixture", BaseURL: server.URL + "/v1"}}
 	cfg.Agents = map[config.AgentName]config.Agent{config.AgentCoder: {Model: "unused-main"}, config.AgentTask: {Model: "unused-task"}}
 	cfg.Witch = config.WitchConfig{Lanes: map[string]config.WitchModel{"witch-routine": {Model: "witch-http", Reasoning: "high"}}}
@@ -99,6 +99,7 @@ func TestWitchWorkerSendsRoleModelAndWritesOwnedFile(t *testing.T) {
 		}
 	}
 	require.Len(t, assistantMessages, 2)
+	require.Equal(t, "Checking the result.", assistantMessages[1].ReasoningContent().Thinking)
 	for _, msg := range assistantMessages {
 		require.Equal(t, models.ModelID("witch-http"), msg.Model)
 		require.Equal(t, "high", msg.ReasoningEffort)

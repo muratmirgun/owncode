@@ -584,6 +584,9 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case chat.SlashCommandMsg:
+		if handled, cmd := a.executionCommand(string(msg)); handled {
+			return a, cmd
+		}
 		switch string(msg) {
 		case "undo", "redo":
 			if a.app.CoderAgent.IsBusy() || a.app.Recovery == nil || a.selectedSession.ID == "" {

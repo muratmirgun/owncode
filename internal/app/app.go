@@ -14,6 +14,7 @@ import (
 	"github.com/muratmirgun/owncode/internal/history"
 	"github.com/muratmirgun/owncode/internal/llm/agent"
 	"github.com/muratmirgun/owncode/internal/llm/tools"
+	"github.com/muratmirgun/owncode/internal/llm/tools/shell"
 	"github.com/muratmirgun/owncode/internal/logging"
 	"github.com/muratmirgun/owncode/internal/lsp"
 	"github.com/muratmirgun/owncode/internal/message"
@@ -181,6 +182,7 @@ func (a *App) RunNonInteractive(ctx context.Context, prompt string, outputFormat
 
 // Shutdown performs a clean shutdown of the application
 func (app *App) Shutdown() {
+	shell.CloseAll()
 	if err := tools.CloseAutomation(); err != nil {
 		logging.Error("Close automation", "error", err)
 	}

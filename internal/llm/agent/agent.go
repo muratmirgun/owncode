@@ -484,6 +484,10 @@ func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msg
 					a.finishMessage(ctx, &assistantMsg, message.FinishReasonPermissionDenied)
 					break
 				}
+				// Surface execution failures (including shell timeouts) instead of
+				// recording an empty successful result and forcing another model turn.
+				toolResult.IsError = true
+				toolResult.Content = strings.TrimSpace(toolResult.Content + "\n" + toolErr.Error())
 			}
 			toolResults[i] = message.ToolResult{
 				ToolCallID: toolCall.ID,
@@ -536,7 +540,7 @@ func (a *agent) processEvent(ctx context.Context, sessionID string, assistantMsg
 	}
 	switch event.Type {
 	case provider.EventThinkingDelta:
-		assistantMsg.AppendReasoningContent(event.Content)
+		assistantMsg.AppendReasoningContent(event.Thinking)
 		return a.messages.Update(ctx, *assistantMsg)
 	case provider.EventContentDelta:
 		assistantMsg.AppendContent(event.Content)

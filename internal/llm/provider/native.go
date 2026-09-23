@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/muratmirgun/owncode/internal/config"
 	"github.com/muratmirgun/owncode/internal/llm/models"
 	"github.com/muratmirgun/owncode/internal/llm/tools"
 	"github.com/muratmirgun/owncode/internal/message"
@@ -207,6 +208,12 @@ func (o *openaiClient) responseBody(messages []message.Message, tools []tools.Ba
 		return nil, err
 	}
 	body := map[string]any{"model": o.providerOptions.model.APIModel, "input": input, "instructions": o.providerOptions.systemMessage, "store": false, "include": []string{"reasoning.encrypted_content"}, "max_output_tokens": o.providerOptions.maxTokens}
+	if config.SupportsFast(o.providerOptions.model) {
+		body["service_tier"] = "default"
+		if config.FastMode() {
+			body["service_tier"] = "priority"
+		}
+	}
 	if effort := o.providerOptions.model.ReasoningLevel(o.options.reasoningEffort); effort != "" && effort != "on" && effort != "off" {
 		body["reasoning"] = map[string]any{"effort": effort}
 	}

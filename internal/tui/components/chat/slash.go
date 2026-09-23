@@ -24,6 +24,8 @@ type SlashSuggestionsMsg struct{ View string }
 type slashCommand struct{ name, description string }
 
 var slashCommands = []slashCommand{
+	{"fast", "Toggle priority processing; /fast on|off"},
+	{"yolo", "Toggle automatic approvals; /yolo on|off"},
 	{"undo", "Preview restoration of the last turn"},
 	{"redo", "Preview reapplying an undone turn"},
 	{"new", "Start a new chat"},
@@ -83,6 +85,14 @@ func (m *editorCmp) slashSuggestions() tea.Cmd {
 }
 
 func (m *editorCmp) handleSlash(msg tea.KeyPressMsg) (bool, tea.Cmd) {
+	// Commands with arguments must never reach the model, even while it is busy.
+	fields := strings.Fields(m.textarea.Value())
+	if msg.String() == "enter" && len(fields) > 0 && (fields[0] == "/fast" || fields[0] == "/yolo") {
+		command := strings.TrimPrefix(strings.Join(fields, " "), "/")
+		m.textarea.Reset()
+		m.slashIndex = 0
+		return true, tea.Sequence(m.slashSuggestions(), util.CmdHandler(SlashCommandMsg(command)))
+	}
 	matches := m.matchingCommands()
 	if len(matches) == 0 {
 		return false, nil
