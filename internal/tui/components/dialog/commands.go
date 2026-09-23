@@ -180,7 +180,7 @@ func (c *commandDialogCmp) View() string {
 		lines = append(lines, line(muted.Render("No matching commands")))
 	}
 	lines = append(lines, line(""), line(muted.Render("↑↓ select · enter run · esc close")))
-	view := base.Width(width).Padding(1, 2).Render(strings.Join(lines, "\n"))
+	view := styles.PanelFrame(width).Render(strings.Join(lines, "\n"))
 	return lipgloss.NewStyle().MaxWidth(max(1, c.width)).MaxHeight(max(1, c.height)).Render(styles.Surface(view, t.BackgroundSecondary()))
 }
 func (c *commandDialogCmp) BindingKeys() []key.Binding {

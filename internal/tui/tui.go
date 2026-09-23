@@ -290,10 +290,12 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.modelDialog = dialog.NewModelDialogCmp()
 		return a, tea.Batch(a.modelDialog.Init(), util.ReportInfo("Connected · "+msg.Model.Name))
 	case tea.WindowSizeMsg:
-		msg.Height -= 1 // Make space for the status bar
+		msg.Height = max(0, msg.Height-core.StatusHeight) // Reserve the footer and its spacing.
 		a.width, a.height = msg.Width, msg.Height
 		a.settings, _ = a.settings.Update(msg)
 		a.agents, _ = a.agents.Update(msg)
+		themePicker, _ := a.themeDialog.Update(msg)
+		a.themeDialog = themePicker.(dialog.ThemeDialog)
 
 		s, _ := a.status.Update(msg)
 		a.status = s.(core.StatusCmp)
@@ -618,8 +620,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "models":
 			return a, a.openModelDialog()
 		case "themes":
-			a.showThemeDialog = true
-			return a, a.themeDialog.Init()
+			return a, a.openThemeDialog()
 		case "agents":
 			a.showAgents = true
 			var load tea.Cmd
@@ -921,10 +922,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(msg, keys.SwitchTheme):
 			if !a.showQuit && !a.showPermissions && !a.showSessionDialog && !a.showCommandDialog {
-				// Show theme switcher dialog
-				a.showThemeDialog = true
-				// Theme list is dynamically loaded by the dialog component
-				return a, a.themeDialog.Init()
+				return a, a.openThemeDialog()
 			}
 			return a, nil
 		case key.Matches(msg, returnKey) || key.Matches(msg):
@@ -1470,4 +1468,12 @@ func (a appModel) FlushDrafts() error {
 		return chat.FlushDrafts()
 	}
 	return nil
+}
+
+// openThemeDialog sizes the picker before its first visible frame.
+func (a *appModel) openThemeDialog() tea.Cmd {
+	a.showThemeDialog = true
+	picker, sizeCmd := a.themeDialog.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+	a.themeDialog = picker.(dialog.ThemeDialog)
+	return tea.Batch(sizeCmd, a.themeDialog.Init())
 }

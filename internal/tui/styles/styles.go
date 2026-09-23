@@ -12,6 +12,15 @@ var (
 	ImageBakcground = "#212121"
 )
 
+// PanelInset is the horizontal spacing shared by cards and menus.
+const PanelInset = 2
+
+// PanelFrame gives menus a consistent surface and internal spacing.
+func PanelFrame(width int) lipgloss.Style {
+	return BaseStyle().Background(theme.CurrentTheme().BackgroundSecondary()).
+		Width(max(1, width)).Padding(1, PanelInset)
+}
+
 // Style generation functions that use the current theme
 
 // BaseStyle returns the base style with background and foreground colors

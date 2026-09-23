@@ -108,7 +108,8 @@ to assist developers in writing, debugging, and understanding code directly from
 			return err
 		}
 		// Defer shutdown here so it runs for both interactive and non-interactive modes
-		defer app.Shutdown()
+		shutdown := sync.OnceFunc(app.Shutdown)
+		defer shutdown()
 
 		var selected session.Session
 		if sessionID != "" {
@@ -169,9 +170,6 @@ to assist developers in writing, debugging, and understanding code directly from
 
 		// Cleanup function for when the program exits
 		cleanup := func() {
-			// Shutdown the app
-			app.Shutdown()
-
 			// Cancel subscriptions first
 			cancelSubs()
 
@@ -181,17 +179,20 @@ to assist developers in writing, debugging, and understanding code directly from
 			// Wait for TUI message handler to finish
 			tuiWg.Wait()
 
+			// Stop active requests before flushing storage and closing services.
+			cancel()
+			shutdown()
 			logging.Info("All goroutines cleaned up")
 		}
 
 		// Run the TUI
 		result, err := program.Run()
+		defer cleanup()
 		if drafts, ok := result.(interface{ FlushDrafts() error }); ok {
 			if saveErr := drafts.FlushDrafts(); saveErr != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "Could not save draft: %v\n", saveErr)
 			}
 		}
-		cleanup()
 
 		if err != nil {
 			logging.Error("TUI error: %v", err)
@@ -201,10 +202,14 @@ to assist developers in writing, debugging, and understanding code directly from
 		if exited, ok := result.(interface{ ExitSession() session.Session }); ok {
 			selected = exited.ExitSession()
 			if selected.ID != "" {
-				if saved, getErr := app.Sessions.Get(ctx, selected.ID); getErr == nil {
-					if _, writeErr := fmt.Fprint(cmd.OutOrStdout(), exitSummary(saved, resumeDirectory(cmd), exitWidth(), exitColor())); writeErr != nil {
-						return writeErr
-					}
+				// Use the UI snapshot if the final database read fails or times out.
+				lookupCtx, lookupCancel := context.WithTimeout(context.Background(), time.Second)
+				if saved, getErr := app.Sessions.Get(lookupCtx, selected.ID); getErr == nil {
+					selected = saved
+				}
+				lookupCancel()
+				if _, writeErr := fmt.Fprint(cmd.OutOrStdout(), exitSummary(selected, resumeDirectory(cmd), exitWidth(), exitColor())); writeErr != nil {
+					return writeErr
 				}
 			}
 		}

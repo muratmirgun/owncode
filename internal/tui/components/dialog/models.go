@@ -349,7 +349,7 @@ func (m *modelDialogCmp) View() string {
 		status = m.refreshStatus
 	}
 	lines = append(lines, line(""), line(muted.Render(status)), line(base.Render("Connect provider ")+muted.Render("F5")+base.Render("  Favorite ")+muted.Render("F6")+base.Render("  Refresh ")+muted.Render("F7 / ctrl+r")))
-	view := base.Width(width).Padding(1, 2).Render(strings.Join(lines, "\n"))
+	view := styles.PanelFrame(width).Render(strings.Join(lines, "\n"))
 	view = styles.Surface(view, t.BackgroundSecondary())
 	// Keep even very small terminals within their available canvas.
 	return lipgloss.NewStyle().MaxWidth(max(1, m.width)).MaxHeight(max(1, m.height)).Render(view)

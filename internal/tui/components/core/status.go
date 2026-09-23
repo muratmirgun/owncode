@@ -21,6 +21,9 @@ import (
 	"github.com/muratmirgun/owncode/internal/tui/util"
 )
 
+// StatusHeight reserves a text row with equal top and bottom spacing.
+const StatusHeight = 3
+
 type StatusCmp interface {
 	util.Model
 }
@@ -120,7 +123,7 @@ func formatTokensAndCost(tokens, contextWindow int64, cost float64) string {
 
 func (m statusCmp) View() string {
 	t := theme.CurrentTheme()
-	width := max(1, m.width-2)
+	width := max(1, m.width-2*styles.PanelInset)
 	text := "ctrl+p commands · / shortcuts · ctrl+? help"
 	color := t.TextMuted()
 	if m.info.Msg != "" {
@@ -144,7 +147,7 @@ func (m statusCmp) View() string {
 		}
 	}
 	view := styles.BaseStyle().Background(t.BackgroundDarker()).Foreground(color).
-		Width(m.width).Padding(0, 1).Render(ansi.Truncate(text, width, "…"))
+		Width(m.width).Padding(1, styles.PanelInset).Render(ansi.Truncate(text, width, "…"))
 	return styles.Surface(view, t.BackgroundDarker())
 }
 
