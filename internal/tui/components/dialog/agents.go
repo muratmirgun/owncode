@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -35,6 +36,8 @@ type agentRow struct {
 	id, title, state, detail string
 	metadata                 *message.Message
 	tokens                   int64
+	latest                   string
+	elapsed                  time.Duration
 	cost                     float64
 }
 type agentsCmp struct {
@@ -82,7 +85,18 @@ func (a *agentsCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 		if msg.parent != a.parent || msg.generation != a.generation {
 			return a, nil
 		}
+		selectedID := ""
+		if a.selected < len(a.rows) {
+			selectedID = a.rows[a.selected].id
+		}
 		a.rows, a.err = msg.rows, msg.err
+		slices.SortStableFunc(a.rows, func(a, b agentRow) int { return agentStateRank(a.state) - agentStateRank(b.state) })
+		for i, row := range a.rows {
+			if selectedID != "" && row.id == selectedID {
+				a.selected = i
+				break
+			}
+		}
 		a.selected = min(a.selected, max(0, len(a.rows)-1))
 		if a.details && len(a.rows) > 0 {
 			a.viewport.SetContent(ansi.Wrap(agentDetail(a.rows[a.selected]), a.viewport.Width(), ""))
@@ -164,12 +178,13 @@ func (a *agentsCmp) load() tea.Cmd {
 		if parent == "" {
 			return agentRowsMsg{generation: generation, parent: parent}
 		}
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		messages, err := a.app.Messages.List(ctx, parent)
 		if err != nil {
 			return agentRowsMsg{generation: generation, parent: parent, err: err}
 		}
-		rows := collectAgentRows(messages, agent.IsTaskRunning)
+		rows := collectAgentRows(messages, agent.IsTaskRunning, a.app.CoderAgent != nil && a.app.CoderAgent.IsSessionBusy(parent))
 		for i := range rows {
 			child, err := a.app.Sessions.Get(ctx, rows[i].id)
 			if err != nil {
@@ -180,13 +195,32 @@ func (a *agentsCmp) load() tea.Cmd {
 			}
 			rows[i].tokens = child.PromptTokens + child.CompletionTokens
 			rows[i].cost = child.Cost
+			if child.CreatedAt > 0 {
+				rows[i].elapsed = max(0, time.Since(time.Unix(child.CreatedAt, 0)))
+			}
 			history, err := a.app.Messages.List(ctx, child.ID)
 			if err != nil {
 				continue
 			}
 			for j := len(history) - 1; j >= 0; j-- {
 				if history[j].Role == message.Assistant {
-					saved := message.Message{Model: history[j].Model, ReasoningEffort: history[j].ReasoningEffort}
+					last := history[j]
+					rows[i].latest = strings.Join(strings.Fields(last.Content().Text), " ")
+					if last.IsThinking() {
+						rows[i].latest = "Thinking…"
+					}
+					for _, call := range last.ToolCalls() {
+						rows[i].latest = "Tool: " + call.Name
+					}
+					if last.IsFinished() && !agent.IsTaskRunning(child.ID) && rows[i].state != "Queued" {
+						if last.FinishReason() == message.FinishReasonEndTurn && rows[i].state != "Failed" {
+							rows[i].state = "Done"
+						}
+						if child.CreatedAt > 0 {
+							rows[i].elapsed = max(0, time.Unix(last.FinishPart().Time, 0).Sub(time.Unix(child.CreatedAt, 0)))
+						}
+					}
+					saved := message.Message{Model: last.Model, ReasoningEffort: last.ReasoningEffort}
 					rows[i].metadata = &saved
 					break
 				}
@@ -207,7 +241,7 @@ func (a *agentsCmp) load() tea.Cmd {
 	}
 }
 
-func collectAgentRows(messages []message.Message, running func(string) bool) []agentRow {
+func collectAgentRows(messages []message.Message, running func(string) bool, parentBusy ...bool) []agentRow {
 	var rows []agentRow
 	index := map[string]int{}
 	workers := map[string]int{}
@@ -227,6 +261,9 @@ func collectAgentRows(messages []message.Message, running func(string) bool) []a
 			}
 			title := role + " · " + strings.Join(strings.Fields(params.Prompt), " ")
 			state := "Interrupted"
+			if len(parentBusy) > 0 && parentBusy[0] && call.Execution == "queued" {
+				state = "Queued"
+			}
 			id := agent.TaskID(call)
 			if running(id) {
 				state = "Working"
@@ -268,7 +305,11 @@ func (a *agentsCmp) View() string {
 	base := styles.BaseStyle().Background(t.BackgroundSecondary())
 	line := func(text string) string { return base.Width(inner).Render(ansi.Truncate(text, inner, "…")) }
 	title := base.Foreground(t.Text()).Bold(true).Render("Agents")
-	subtitle := "Worker settings · Results stay linked to this chat"
+	counts := map[string]int{}
+	for _, row := range a.rows {
+		counts[row.state]++
+	}
+	subtitle := fmt.Sprintf("Working %d · Queued %d · Done %d · Failed %d", counts["Working"], counts["Queued"], counts["Done"], counts["Failed"])
 	body := []string{}
 	if a.composing {
 		return base.Width(width).Padding(1, 2).Render("Worker follow-up\n\n" + a.input.View() + "\n\nenter queue / prepare resume · esc back")
@@ -277,7 +318,7 @@ func (a *agentsCmp) View() string {
 		title += "  /  " + a.rows[a.selected].state
 		body = append(body, a.viewport.View())
 	} else {
-		visible := max(1, (height-10)/2)
+		visible := max(1, (height-10)/3)
 		start := max(0, a.selected-visible+1)
 		for i := start; i < min(len(a.rows), start+visible); i++ {
 			row := a.rows[i]
@@ -285,6 +326,8 @@ func (a *agentsCmp) View() string {
 			switch row.state {
 			case "Working":
 				color = t.Primary()
+			case "Queued":
+				color = t.Warning()
 			case "Done":
 				color = t.Success()
 			case "Failed":
@@ -297,7 +340,15 @@ func (a *agentsCmp) View() string {
 			} else {
 				text = "  " + text
 			}
-			body = append(body, line(text), line(base.Foreground(t.TextMuted()).Render("  "+util.WorkerMetadataLine(row.metadata, max(1, inner-2)))))
+			latest := row.latest
+			if latest == "" {
+				latest = "Waiting for model"
+				if row.state == "Queued" {
+					latest = "Waiting for a worker slot"
+				}
+			}
+			activity := fmt.Sprintf("  %s · %s", row.elapsed.Round(time.Second), latest)
+			body = append(body, line(text), line(base.Foreground(t.TextMuted()).Render("  "+util.WorkerMetadataLine(row.metadata, max(1, inner-2)))), line(base.Foreground(t.TextMuted()).Render(activity)))
 		}
 		if len(a.rows) == 0 {
 			body = append(body, line("No agents in this chat yet."), line(""), line("Ask OwnCode to delegate a focused search or review."), line("Each worker uses a separate context and its assigned permissions."))
@@ -321,4 +372,17 @@ func (a *agentsCmp) View() string {
 func agentDetail(row agentRow) string {
 	name, effort := util.WorkerMetadata(row.metadata)
 	return "Model: " + name + "\nReasoning: " + effort + "\n\n" + row.detail
+}
+
+func agentStateRank(state string) int {
+	switch state {
+	case "Working":
+		return 0
+	case "Queued":
+		return 1
+	case "Failed", "Interrupted":
+		return 2
+	default:
+		return 3
+	}
 }

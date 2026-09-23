@@ -27,6 +27,7 @@ go.work
 !/docs/witch.md
 !/docs/releasing.md
 !/docs/guide.md
+!/docs/tui-performance.md
 !/docs/assets/
 !/docs/licenses/
 # OS specific files

@@ -1463,3 +1463,11 @@ type witchLaneSelectedMsg struct {
 }
 
 type selectProfileMsg string
+
+// FlushDrafts persists chat drafts after the UI loop stops.
+func (a appModel) FlushDrafts() error {
+	if chat, ok := a.pages[page.ChatPage].(interface{ FlushDrafts() error }); ok {
+		return chat.FlushDrafts()
+	}
+	return nil
+}

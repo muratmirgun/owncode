@@ -34,6 +34,11 @@ import (
 type ToggleProfileMsg struct{}
 
 type editorCmp struct {
+	draftStore        *draftStore
+	draftAttachments  map[string][]message.Attachment
+	drafts            map[string]draftEntry
+	draftsDirty       bool
+	draftPending      bool
 	history           []sentDraft
 	historyOffset     int
 	historyDrafts     map[int]string
@@ -140,7 +145,7 @@ func (m *editorCmp) openEditor() tea.Cmd {
 }
 
 func (m *editorCmp) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink, m.loadSkillNames())
+	return tea.Batch(textarea.Blink, m.loadSkillNames(), m.loadDraft(m.session.ID))
 }
 
 func (m *editorCmp) send() tea.Cmd {
@@ -172,9 +177,41 @@ func (m *editorCmp) send() tea.Cmd {
 // InsertTextMsg appends reviewed content without submitting the draft.
 type InsertTextMsg string
 
-func (m *editorCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
+func (m *editorCmp) Update(msg tea.Msg) (model util.Model, command tea.Cmd) {
+	trackDraft := false
+	switch msg.(type) {
+	case tea.KeyPressMsg, tea.PasteMsg, InsertTextMsg, dialog.CompletionSelectedMsg, draftLoadedMsg:
+		trackDraft = true
+	}
+	beforeText, beforeSession := "", m.session.ID
+	if trackDraft {
+		beforeText = m.textarea.Value()
+	}
+	defer func() {
+		if trackDraft && beforeSession == m.session.ID && beforeText != m.textarea.Value() {
+			m.rememberDraft(m.session.ID, m.textarea.Value())
+		}
+		command = tea.Batch(command, m.draftTimer())
+	}()
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
+	case draftLoadedMsg:
+		if msg.owner != m {
+			return m, nil
+		}
+		if msg.err != nil {
+			return m, util.ReportError(fmt.Errorf("load draft: %w", msg.err))
+		}
+		if _, edited := m.drafts[msg.session]; !edited && msg.session == m.session.ID && m.textarea.Value() == "" {
+			m.textarea.SetValue(msg.text)
+		}
+		return m, nil
+	case draftTickMsg:
+		if msg.owner != m {
+			return m, nil
+		}
+		m.draftPending = false
+		return m, m.saveDrafts()
 	case skillNamesMsg:
 		if msg.owner == m {
 			m.skillCommands = msg.commands
@@ -257,20 +294,20 @@ func (m *editorCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 		}
 		return m, nil
 	case SessionClearedMsg:
+		draftCmd := m.switchDraft("")
 		m.history = nil
 		m.resetRecall()
 		m.session = session.Session{}
-		m.textarea.Reset()
-		m.attachments = nil
 		m.slashDismissed = false
-		return m, m.slashSuggestions()
+		return m, tea.Batch(draftCmd, m.slashSuggestions())
 	case SessionSelectedMsg:
 		if msg.ID != m.session.ID {
+			cmd = m.switchDraft(msg.ID)
 			m.session = msg
 			m.history = nil
 			m.resetRecall()
 		}
-		return m, nil
+		return m, cmd
 	case dialog.AttachmentAddedMsg:
 		if len(m.attachments) >= maxAttachments {
 			logging.ErrorPersist(fmt.Sprintf("cannot add more than %d images", maxAttachments))
@@ -509,8 +546,9 @@ func CreateTextArea(existing *textarea.Model) textarea.Model {
 func NewEditorCmp(app *app.App) util.Model {
 	ta := CreateTextArea(nil)
 	return &editorCmp{
-		app:      app,
-		textarea: ta,
+		app:        app,
+		draftStore: newDraftStore(),
+		textarea:   ta,
 	}
 }
 

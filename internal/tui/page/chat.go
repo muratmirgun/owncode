@@ -366,3 +366,11 @@ func (p *chatPage) PermissionWidth() int {
 	width, _ := p.messages.GetSize()
 	return width
 }
+
+// FlushDrafts persists the composer when the application exits.
+func (p *chatPage) FlushDrafts() error {
+	if editor, ok := p.editor.(interface{ FlushDrafts() error }); ok {
+		return editor.FlushDrafts()
+	}
+	return nil
+}

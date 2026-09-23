@@ -162,3 +162,17 @@ func TestSlashModeArgumentsStayLocal(t *testing.T) {
 		require.Empty(t, m.textarea.Value())
 	}
 }
+
+func TestTTFTUsesRequestClockInsteadOfUIReceipt(t *testing.T) {
+	start := time.Unix(100, 0)
+	msg := message.Message{ID: "timed", Role: message.Assistant, RequestStartedAt: start, StreamStartedAt: start.Add(1500 * time.Millisecond), StreamUpdatedAt: start.Add(2 * time.Second), Parts: []message.ContentPart{message.TextContent{Text: strings.Repeat("x", 40)}}}
+	s := &throughputStats{}
+	s.observe(msg, start.Add(10*time.Second))
+	require.Equal(t, 1500*time.Millisecond, s.started.Sub(s.created))
+	require.Equal(t, 20.0, s.rate)
+}
+
+func TestPersistedDurationUsesSeconds(t *testing.T) {
+	require.Equal(t, "3.0s", formatTimestampDiff(100, 103))
+	require.Equal(t, "<1s", formatTimestampDiff(100, 100))
+}

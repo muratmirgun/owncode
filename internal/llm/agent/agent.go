@@ -395,6 +395,7 @@ func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msg
 
 	// Add the session and message ID into the context before streaming so tools receive it.
 	ctx = context.WithValue(ctx, tools.MessageIDContextKey, assistantMsg.ID)
+	assistantMsg.RequestStartedAt = time.Now()
 	eventChan := a.provider.StreamResponse(ctx, withToolImages(msgHistory, a.provider.Model().SupportsAttachments), a.tools)
 
 	// Process each event in the stream.
